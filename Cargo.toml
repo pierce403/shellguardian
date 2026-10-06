@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/openshell-bridge", "src-tauri"]
+exclude = ["vendor/glib"]
 default-members = ["crates/openshell-bridge"]
 resolver = "2"
 
@@ -8,3 +9,6 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.90"
+
+[patch.crates-io]
+glib = { path = "vendor/glib" }

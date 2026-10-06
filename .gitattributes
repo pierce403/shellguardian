@@ -1,0 +1,2 @@
+# Preserve the upstream license's original bytes in the vendored snapshot.
+vendor/glib/LICENSE whitespace=-blank-at-eof

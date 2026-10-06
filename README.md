@@ -80,3 +80,6 @@ and ownership boundaries. Repository workflows follow the practical guidance at
 [recurse.bot](https://recurse.bot/).
 
 Apache-2.0 licensed. ShellGuardian is an independent project, not an NVIDIA product.
+
+The GTK dependency uses a documented [GLib compatibility backport](vendor/glib/SHELLGUARDIAN.md)
+for an upstream string-iterator soundness advisory. Its original license is retained.

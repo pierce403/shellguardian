@@ -98,3 +98,21 @@ The preview server's logs showed page reloads for generated Tauri HTML under
 `target/debug/build/.../tauri-codegen-assets`. Vite now excludes native source,
 Rust build output, and development caches from its watcher. This is independent
 of the packaged frontend and prevents build artifacts from triggering UI reloads.
+
+### GTK dependency advisory
+
+GitHub flagged GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429 after the initial push.
+The dependency is GLib 0.18.5, required by Tauri's GTK 3 graph. The advisory is an
+immutable Rust pointer reference passed to a mutable C out-argument in
+`VariantStrIter::impl_get`; optimization can discard that write and leave a null
+pointer. A registry upgrade to the patched 0.20 line does not satisfy GTK 3's
+0.18 dependency range.
+
+Verified the original crate archive's SHA-256 against the original Cargo.lock
+checksum, then vendored that single 1.1 MB package with its original license.
+Applied the exact two-line runtime fix from official gtk-rs-core PR 1343 using
+the root Cargo patch table. No package version was changed and no GitHub alert
+was manually dismissed. Added two optimized forward/reverse/mixed iterator
+regressions; both passed. The unchanged third-party snapshot emits existing style
+and lifetime warnings on Rust 1.97; it is excluded from workspace formatting.
+Provenance and maintenance/removal conditions are in `vendor/glib/SHELLGUARDIAN.md`.

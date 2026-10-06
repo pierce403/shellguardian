@@ -70,3 +70,7 @@ behavior. The guide at https://recurse.bot informed these conventions.
 - Vite must ignore `src-tauri`, `target`, and `.cache` in its watcher. Native code
   generation created HTML under `target` and caused unrelated frontend reloads
   before those build/cache directories were excluded.
+- `vendor/glib` carries a two-line upstream fix for RUSTSEC-2024-0429 because
+  Tauri's GTK 3 graph requires GLib 0.18. Preserve its provenance and licenses;
+  do not format the upstream snapshot. Run its optimized regression before
+  changing/removing this backport. See `vendor/glib/SHELLGUARDIAN.md`.
