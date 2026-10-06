@@ -218,3 +218,14 @@ Retained an owner-only signing-key backup in `.release-keys/updater.key`, explic
 Git-ignored and separate from disposable build caches. The directory is 0700 and
 the key 0600. The user should retain an independent backup before moving/removing
 the checkout. The private key has never been printed or committed.
+
+Final production deployment uses pushed source `c0bb158bde2ff07c87a5ee1e5166947210011ce0`,
+Worker version `65517dda-a467-4046-99c1-a108d2334f81`, with its source SHA in the
+deployment message. Verified HTTP 308 to the canonical HTTPS URL, HTTPS HTML/CSS/JS/
+screenshot byte parity, and the installer/update-manifest GitHub redirects and bytes.
+The live site rendered in the user's browser. All five original MX records remain.
+Local DNS answers were intermittently negative during these checks; authoritative
+DNS, public DoH, named TLS to the authoritative edge, ordinary HTTPS when resolved,
+and the live browser independently confirmed the public origin. Native test drivers
+and preview listeners are stopped; only committed source, signed public assets,
+ignored test receipts/caches, and the protected signing-key backup remain.
