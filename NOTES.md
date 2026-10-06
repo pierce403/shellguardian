@@ -256,3 +256,10 @@ Pre-publication checks passed: transport tests, static content/links, copy helpe
 success/fallback, formatting/diff checks, and Wrangler's static-assets dry-run.
 All 17 distinct advertised project GitHub URLs returned HTTP 200, including each
 versioned download, documentation, license, releases, and issue tracker.
+
+The public byte check found Cloudflare automatically injecting its analytics
+beacon into the HTML, despite the site's restrictive CSP and no authored analytics.
+This was not an app runtime. Added a site-local `Cache-Control: public, max-age=0,
+must-revalidate, no-transform` header, following official Web Analytics documentation
+(https://developers.cloudflare.com/web-analytics/get-started/), to preserve the
+committed payload. No account-wide analytics, cache, or security setting changed.

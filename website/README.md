@@ -25,6 +25,9 @@ are ordinary anchors. Release details are a static snapshot: update them after
 verifying the actual published assets. `site.js` only enables copying the install
 command; the content and links work without JavaScript. The website never runs the
 Tauri app, communicates with an OpenShell gateway, or stores app state.
+The `no-transform` response directive prevents Cloudflare's automatic analytics
+injection and preserves served HTML byte parity. Do not remove it without checking
+the public response. Browser caching still requires revalidation.
 
 The earlier owner-private Sites preview retains its identity in
 `.openai/hosting.json` and source checkout `/home/pierce/projects/shellguardian-website`.

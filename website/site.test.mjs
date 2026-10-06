@@ -4,6 +4,8 @@ import { runInNewContext } from 'node:vm';
 
 const html = await readFile(new URL('./dist/index.html', import.meta.url), 'utf8');
 const helper = await readFile(new URL('./dist/site.js', import.meta.url), 'utf8');
+const headers = await readFile(new URL('./dist/_headers', import.meta.url), 'utf8');
+assert.match(headers, /Cache-Control: public, max-age=0, must-revalidate, no-transform/);
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]));
 const links = [...html.matchAll(/\bhref="([^"]+)"/g)].map((match) => match[1]);
 const repo = 'https://github.com/pierce403/shellguardian';
