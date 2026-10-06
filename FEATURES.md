@@ -73,6 +73,8 @@ Acceptance checkboxes require evidence, not assumptions.
         applies matching theme tokens. Physical OS-settings changes remain untested.
   - [x] Ten installer checks include valid desktop metadata and matching icon bytes.
   - [x] Six native unit tests cover safe, one-time legacy launcher repair.
+  - [x] Published v0.3.1 installer and native AppImage verify the icon, desktop entry,
+        X11 WM_CLASS, and GTK application ID. No user favorites were changed.
   - [ ] Live Ubuntu dock pinning/grouping verified with the packaged application.
 
 ## Agent supervision

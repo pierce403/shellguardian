@@ -21,6 +21,42 @@ const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 let fixture;
 let endpoint;
 let session;
+let cleanupPromise;
+
+function cleanupOwnedProcesses() {
+  cleanupPromise ??= (async () => {
+    await stopChildren();
+    await fixture?.cleanup();
+  })();
+  return cleanupPromise;
+}
+
+for (const [signal, exitCode] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
+  process.once(signal, () => {
+    void cleanupOwnedProcesses().finally(() => process.exit(exitCode));
+  });
+}
+
+function desktopIdentity(environment) {
+  const tree = execFileSync('xwininfo', ['-root', '-tree'], { env: environment, encoding: 'utf8' });
+  const windows = [...tree.matchAll(/(0x[0-9a-f]+) "ShellGuardian"/g)].map((match) => match[1]);
+  assert.ok(windows.length > 0, 'The native ShellGuardian window must exist.');
+  for (const window of windows) {
+    const properties = execFileSync('xprop', ['-id', window, 'WM_CLASS', '_GTK_APPLICATION_ID'], {
+      env: environment,
+      encoding: 'utf8',
+    });
+    const classes = properties.match(/WM_CLASS\(STRING\) = "([^"]+)", "([^"]+)"/);
+    if (!classes || !classes.slice(1).includes('shellguardian')) continue;
+    const applicationId = properties.match(/_GTK_APPLICATION_ID\([^)]*\) = "([^"]+)"/)?.[1] ?? null;
+    if (applicationId) assert.equal(applicationId, 'bot.recurse.shellguardian');
+    return { wmClass: classes.slice(1), gtkApplicationId: applicationId };
+  }
+  throw new Error('The native WM_CLASS must match the installed desktop launcher.');
+}
 
 function gateways() {
   return JSON.parse(
@@ -303,6 +339,19 @@ try {
     `native driver: ${driver.diagnostic()}`,
   );
   await start();
+  const identity =
+    process.env.SHELLGUARDIAN_VERIFY_DESKTOP_IDENTITY === '1'
+      ? desktopIdentity(displayEnvironment)
+      : null;
+  if (process.env.SHELLGUARDIAN_EXPECT_VERSION) {
+    const update = await ipc('get_shellguardian_update');
+    assert.equal(update.appVersion, process.env.SHELLGUARDIAN_EXPECT_VERSION);
+    assert.equal(
+      update.supported,
+      true,
+      'The installed AppImage must retain native update support.',
+    );
+  }
   const theme = await ipc('plugin:window|theme', { label: 'main' });
   assert.ok(theme === 'light' || theme === 'dark');
   await until(
@@ -385,6 +434,7 @@ try {
         activeOpenShellGatewayUnchanged: true,
         nativeTheme: theme,
         themeMatchesOS: true,
+        desktopIdentity: identity,
         browserStorageEntries: 0,
         openshellMutations: false,
       },
@@ -398,6 +448,5 @@ try {
       await ipc('disconnect_ssh_gateway', { connectionId: connection.id }).catch(() => {});
   }
   await stop();
-  await stopChildren();
-  await fixture?.cleanup();
+  await cleanupOwnedProcesses();
 }

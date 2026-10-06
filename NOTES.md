@@ -350,3 +350,37 @@ The v0.3.0 release workflow stopped before packaging on a Rustfmt difference in
 one launcher-migration test assertion. Applied the pinned Rust 1.97 formatter and
 checked the entire workspace. Kept the pushed tag immutable and advanced the
 release to v0.3.1; no v0.3.0 binaries or update manifest were published.
+
+Signed v0.3.1 was published from exact tag commit
+`9ca9e26a325650cf28b40b925331d5c9931fe27b`. GitHub Actions run `37503180354`
+passed the complete source checks and signed AppImage build in 10m38s. Its
+85,322,232-byte AppImage has SHA256
+`cfc0a648417facf19192aabdae2941c929b4be7f39d6e17b262e2454ea0e523e`.
+All five advertised asset checksums and signed-version metadata matched.
+
+Ran the public installer into isolated data/bin directories, keeping the real
+OpenShell config read-only and untouched. The shipped AppImage passed the full
+native SSH/mTLS lifecycle and current-dark-theme acceptance above. The live X11
+WM_CLASS was `shellguardian`, `Shellguardian`; `_GTK_APPLICATION_ID` was
+`bot.recurse.shellguardian`. Its installed icon/desktop entry validated, native
+updater support remained enabled, and the installed binary hash was unchanged
+after testing. Evidence and a screenshot are under
+`.cache/public-release-0.3.1/`; the reusable verification script is checked in.
+Physical GNOME pinning and a separate remote machine remain distinct acceptance
+steps; no favorites or agent state were changed.
+
+The static website release listing was deployed through the existing Cloudflare
+Worker from pushed commit `20695c3a52d8625820761ee3209d277a2929dce9`, Worker version
+`2e57527b-d4c0-4c1d-ae91-a0152daed857`. Used strict deployment conflict checking
+and preserved the existing routes/configuration. Only the HTML asset changed;
+the Tauri frontend was not deployed. All 18 distinct advertised project GitHub
+URLs returned HTTP 200, including the versioned AppImage and verification files.
+
+Live shellguardian.org HTML matches the committed bytes (SHA256
+`def9abf4359e5b141a940dcbe7762a398a85820c25febeb809884dd169713d56`). HTTPS,
+HSTS, restrictive CSP, `no-transform`, and HTTP-to-HTTPS path/query preservation
+passed. The public installer and update-manifest redirects return bytes matching
+the v0.3.1 release. The live browser renders v0.3.1, the new feature/release copy,
+and 85.3 MB download information without horizontal overflow. Its only script is
+the local copy helper. The temporary preview server and native test processes are
+stopped. Cloudflare received only the static project page, never a gateway or app.

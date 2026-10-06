@@ -145,3 +145,30 @@ extracted under the ignored cache, checked against the installed apt index's
 SHA256 `108256262b0fb7bb8eddd92e87230f775c90eb321413e8789754b3509f7b55c6`.
 Physical separate-host/network acceptance and native live OS setting changes
 remain separate from this loopback transport and current-theme acceptance.
+
+## Published AppImage acceptance
+
+The public-release verifier downloads the exact version's GitHub assets, checks
+the complete SHA256 manifest and signed-version metadata, runs the published
+installer in isolated data/bin directories, and executes the shipped AppImage
+through the native SSH test. It also requires `desktop-file-validate`, `xwininfo`,
+and `xprop` for desktop entry and native X11 window identity checks:
+
+```bash
+node scripts/verify-public-release.mjs 0.3.1
+```
+
+Artifacts, the isolated install, screenshot, and `verification.json` are retained
+under `.cache/public-release-0.3.1`. `HOME` and `XDG_CONFIG_HOME` remain unchanged
+so OpenShell can use its existing profile; only install/bin paths and
+`XDG_DATA_HOME` point into the test directory. The verifier does not change app
+preferences, OS appearance, or GNOME favorites. The native harness also cleans
+up its private processes if an external timeout sends SIGTERM.
+
+On 2026-10-06 the published 0.3.1 AppImage passed the native SSH lifecycle and
+theme checks above. Its installed launcher/icon passed desktop entry validation,
+the live X11 WM_CLASS was `shellguardian`, `Shellguardian`, and
+`_GTK_APPLICATION_ID` was `bot.recurse.shellguardian`, matching the stable desktop
+ID. Native AppImage update support was detected and the installed bytes were
+unchanged after acceptance. These checks establish the installed icon and window
+identity; actually adding the app to a user's GNOME dock remains a user action.
