@@ -263,3 +263,23 @@ This was not an app runtime. Added a site-local `Cache-Control: public, max-age=
 must-revalidate, no-transform` header, following official Web Analytics documentation
 (https://developers.cloudflare.com/web-analytics/get-started/), to preserve the
 committed payload. No account-wide analytics, cache, or security setting changed.
+
+Final production uses pushed source `7670358fd45472435eaea50c15e7d18e95d39c56`,
+Worker version `d50ae62c-d4a3-4120-8870-2312ce17d3f6`, at 100% traffic with the
+exact source SHA in its deployment message. An earlier deployment annotation had
+a mistyped full SHA and was immediately corrected before final acceptance.
+
+Verified named HTTPS with public IPv4 DNS: HTML, CSS, helper, SVG, and screenshot
+all match the committed files exactly. The HTML SHA256 is
+`334659b9e83c4020925f92b2f94a301300473cc8a9e24c8ce00c0a45055fe824`.
+Public responses include `no-transform`, restrictive CSP, and HSTS, with only
+the local copy helper in the HTML. HTTP preserves path/query through its HTTPS
+redirect. Installer and update-manifest redirects returned the correct GitHub
+assets; installer bytes match source and the manifest reports 0.2.0.
+
+Reloaded the user's existing public browser tab and verified the new page,
+navigation, release downloads, and copy-command success message. At the temporary
+430px viewport, document width equals its 415px content viewport and the download
+table fits its 345px container without horizontal overflow. Visually checked the
+mobile release section, reset the viewport, and returned to the project overview.
+The browser's only page script is `/site.js`. No OpenShell operation was performed.

@@ -126,7 +126,7 @@ Test Criteria:
 - [ ] Adversarial signature/version/network responses exercised through the native updater.
 - [x] Website published at shellguardian.org from committed source; HTTPS, content
       parity, browser rendering, and installation redirect/bytes verified.
-- [ ] Revised static project/release page accepted in the public browser, including
+- [x] Revised static project/release page accepted in the public browser, including
       responsive layout and optional copy-command behavior.
 - [ ] macOS, Windows, and Linux ARM packages published and accepted. Not yet supported.
 
