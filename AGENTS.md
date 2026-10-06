@@ -44,7 +44,9 @@ focused milestones. Do not disturb existing agents to test the application.
 - `docs`: architecture, upstream contract, and development instructions.
 - `install.sh`: HTTPS/checksum-verified per-user Linux installer. No root or sudo.
 - `.github/workflows/release.yml`: exact-tag signed Linux AppImage releases.
-- `website`: website source and static assets, mirrored into its Sites checkout.
+- `website`: static website, independent npm lockfile, and Cloudflare deployment
+  config for shellguardian.org. Commit/push before deploy; verify public byte parity
+  and HTTPS/installer redirect. Do not replace unrelated DNS or mail records.
 - `memory`: compact project observations and dated verification records.
 
 ## Collaboration conventions

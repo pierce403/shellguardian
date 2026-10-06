@@ -144,3 +144,50 @@ files, symlink/unmanaged targets, space paths, and reinstall rollback.
 Public release, native signed-update, and website acceptance evidence follows once
 those stages complete. Linux x86_64 is the initial supported release platform;
 other platform builds must not be advertised as available without real artifacts.
+
+### Public release and native acceptance
+
+GitHub Actions run 37485994688 passed on exact commit
+`4a6d8a68ee44104cb498afde646369a8e270e00c`, tag `v0.2.0`. Published the 85.2 MB
+Linux x86_64 AppImage, signed/version-bound manifest, signature, installer,
+version file, and SHA256SUMS. All five public asset digests verified. The public
+installer fetched GitHub assets, verified the checksum, and installed successfully
+into ignored `.cache/public-install` user paths without root or system changes.
+
+Real native IPC confirmed default-on updates, an owner-only opt-out file,
+persistence across native restart, and re-enable. The update probe uses an old
+release-mode 0.1.0 executable in a disposable writable AppImage slot; its backend
+is the same tagged source. Production's default frontend cannot call `window.close`
+over IPC. An initial probe mistakenly swallowed that permission error and timed
+out. The fixture alone now includes `core:window:allow-close` so it exercises the
+native normal-close event without widening the published app's capability.
+
+That probe passed: downloaded and verified the published 0.2.0 signature plus
+signed version, held the download without replacing the 0.1.0 fixture, then applied
+it through native normal-close handling. Replacement SHA256 exactly matched public
+AppImage `bbfee801458e8f917dfe5ba4c4a72afd01ad64b327ef37c5f05cffbffe561be0`.
+No OpenShell mutations were performed. The fixture is a versioned executable in a
+disposable AppImage slot, not a previously published 0.1.0 distribution.
+
+### Cloudflare publication
+
+The user explicitly requested https://shellguardian.org. The earlier private Sites
+preview was already published; its identity/source remain preserved, but the public
+production origin now uses the user's Cloudflare account with Workers Static Assets.
+This avoids adding login or another stateful website backend. Website files live in
+`website/dist`; app frontend output is still ignored `dist` at the repository root.
+
+Verified the active zone `296c374c7a073a52f910bca1fc01c7a2` in existing account
+`b6d1478423f0bb0c0477df387305e46b`. No existing matching Worker, route, or custom
+domain was registered. Public apex A/AAAA/CNAME were absent. Five existing
+Namecheap mail-forwarding MX records were found and must be preserved. The existing
+Wrangler OAuth has Workers/route/SSL permissions, not DNS-record read/edit, so a
+direct DNS-list request returned 403. Worker custom-domain registration manages
+only its apex record; no broad DNS token or other security access was added.
+
+Wrangler 4.147.0 initially pulled development-only Sharp with GHSA-wq5f-xc86-pv6w,
+published in the advisory database today. Verified official Sharp 0.35.5 as patched,
+added a scoped override, and rechecked the deployment dry-run. npm audit now reports
+zero vulnerabilities for the website tools. Static site header policy restricts
+scripts/styles/images to local assets and prohibits framing. `/install.sh` and
+`/latest.json` redirect to the official project GitHub Release.

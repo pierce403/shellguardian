@@ -1,6 +1,8 @@
 # ShellGuardian
 
-A Tauri desktop control room for NVIDIA OpenShell agents. Inspect agent access,
+A Tauri desktop control room for NVIDIA OpenShell agents. [shellguardian.org](https://shellguardian.org/)
+
+Inspect agent access,
 control sandbox lifecycle, manage provider attachments, review network policies,
 and check the installed OpenShell version and official release status.
 
@@ -14,7 +16,7 @@ or remote gateways. Selecting a gateway in the app does not change CLI context.
 Linux x86_64 preview releases are installed per user. No sudo is needed:
 
 ```bash
-curl -fsSL https://github.com/pierce403/shellguardian/releases/latest/download/install.sh | bash
+curl -fsSL https://shellguardian.org/install.sh | bash
 ```
 
 Requires existing OpenShell configuration, GTK 3, and WebKitGTK 4.1 runtime

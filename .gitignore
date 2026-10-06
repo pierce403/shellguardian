@@ -9,3 +9,9 @@ playwright-report/
 *.log
 .DS_Store
 /vendor/glib/Cargo.lock
+!website/dist/
+!website/dist/**
+website/.wrangler/
+website/worker-configuration.d.ts
+website/.env*
+website/.dev.vars*

@@ -1,0 +1,3 @@
+/install.sh https://github.com/pierce403/shellguardian/releases/latest/download/install.sh 302
+/latest.json https://github.com/pierce403/shellguardian/releases/latest/download/latest.json 302
+/download https://github.com/pierce403/shellguardian/releases/latest 302

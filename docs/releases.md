@@ -6,7 +6,7 @@ installer does not provision OpenShell, install system packages, or request sudo
 macOS, Windows, and Linux ARM do not have published packages yet.
 
 ```bash
-curl -fsSL https://github.com/pierce403/shellguardian/releases/latest/download/install.sh | bash
+curl -fsSL https://shellguardian.org/install.sh | bash
 shellguardian
 ```
 
