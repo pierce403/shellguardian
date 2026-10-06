@@ -23,7 +23,7 @@ done
 [ "$(id -u)" != 0 ] || fail 'Run as your ordinary user, not root. No sudo is needed.'
 [ "$(uname -s)" = Linux ] || fail 'This release supports Linux only. See the website for platform status.'
 case "$(uname -m)" in x86_64|amd64) ;; *) fail 'This release requires Linux x86_64.' ;; esac
-for dependency in curl sha256sum mktemp install cmp; do
+for dependency in curl sha256sum mktemp install cmp timeout; do
   command -v "$dependency" >/dev/null 2>&1 || fail "Install $dependency first."
 done
 [ -n "${HOME:-}" ] || fail 'Your home directory is not set.'
@@ -110,11 +110,13 @@ if [ "$desktop" = 1 ]; then
   if [ ! -L "$compatibility_file" ] && { [ ! -e "$compatibility_file" ] || { [ -f "$compatibility_file" ] && { cmp -s "$compatibility_file" "$task_tmp/compatibility.desktop" || cmp -s "$compatibility_file" "$task_tmp/compatibility-named.desktop"; }; }; }; then
     install -m 644 "$task_tmp/compatibility.desktop" "$compatibility_file"
   fi
+  # These optional tools inspect user-owned directories; bound their work in case
+  # an unrelated nonregular entry or broken filesystem would otherwise stall.
   if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -q -t -f "$icon_root" >/dev/null 2>&1 || true
+    timeout --kill-after=1s 5s gtk-update-icon-cache -q -t -f "$icon_root" >/dev/null 2>&1 || true
   fi
   if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+    timeout --kill-after=1s 5s update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
   fi
 fi
 printf '\nInstalled %s\nLaunch: %s\n' "$appimage" "$launcher"

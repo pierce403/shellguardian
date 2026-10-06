@@ -407,6 +407,8 @@ native migration now use an absolute SVG path, a canonical X11 match, and a hidd
 legacy `shellguardian.desktop` alias. Existing custom aliases and symlinks remain
 untouched. Independent review caught a possible installer hang when the alias was
 a FIFO; comparisons now require a regular file, covered by FIFO/directory tests.
+The new test also exposed `update-desktop-database` blocking when it scanned that
+preserved FIFO. Optional desktop/icon cache refreshes now have bounded timeouts.
 
 Applied the narrow local launcher repair to the user's existing install, retaining
 the old v0.3.1 X11 class while that binary remains installed. Backed up the original
