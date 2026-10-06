@@ -58,3 +58,12 @@ behavior. The guide at https://recurse.bot informed these conventions.
   rather than changing system installation.
 - Linux GTK/WebKit development packages are missing. `sudo -n` requires
   interactive authentication even outside the restricted sandbox.
+- `bash scripts/prepare-linux-headers.sh` successfully extracted development
+  headers into `.cache/native` and enabled the native build using the host runtime
+  libraries. See `docs/development.md` for the tested environment variables.
+- Verified: `npm run build`, `npm run format:check`, `cargo test -p openshell-bridge`,
+  `cargo clippy -p openshell-bridge --all-targets -- -D warnings`, native Cargo
+  check/Clippy, Tauri debug build, Chromium UI checks, and native read-only WebKit
+  smoke test. Keep the distinction between contracts, preview, and live behavior.
+- Rust dependencies require 1.90 or newer; verification used 1.97.0. npm uses
+  repository lockfiles and an ignored local dependency cache in this environment.

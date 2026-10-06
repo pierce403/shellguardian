@@ -17,24 +17,28 @@ Acceptance checkboxes require evidence, not assumptions.
   - No database, persistence layer, localStorage, or application service.
 - **Dependencies**: OpenShell 0.1.2, Rust adapter, Tauri IPC.
 - **Test Criteria**:
-  - [ ] Live read-only probe matches installed CLI and gateway output.
-  - [ ] Command contract tests cover scoping, pagination, and failures.
-  - [ ] Native application connects to a registered gateway.
+  - [x] Live read-only probe matches installed CLI and gateway output.
+  - [x] Command contract tests cover scoping, pagination, and failures.
+  - [x] Native application connects to a registered gateway.
+  - Evidence: 25 Rust tests, live `inspect` probe, and native WebKit smoke test on 2026-10-05.
+  - Remaining: physical remote host acceptance and production release packaging.
 
 ## Agent supervision
 
 - **Stability**: in-progress
 - **Description**: Make each OpenShell sandbox's access understandable.
 - **Properties**:
-  - List sandbox names, states, images, creation times, and provider attachments.
-  - Inspect filesystem, network, process, and resource configuration.
+  - List sandbox names, states, creation times, and provider attachments. Image
+    and resource fields appear only when a supported upstream interface exposes them.
+  - Inspect filesystem, network, and process policy. Mark resource configuration
+    and measurements unavailable when the CLI omits them.
   - Start/stop a sandbox only on an explicit user action with reviewable context.
   - Show errors and stale state, and refresh after a mutation.
   - Clearly distinguish sandbox state from workload/process health.
 - **Dependencies**: Stateless OpenShell connection.
 - **Test Criteria**:
-  - [ ] UI sample preview covers running, stopped, and unavailable states.
-  - [ ] Rust tests verify lifecycle argument arrays and invalid target rejection.
+  - [x] UI sample preview covers ready, stopped, and unavailable states.
+  - [x] Rust tests verify lifecycle argument arrays and invalid target rejection.
   - [ ] Native start/stop verified against a disposable authorized sandbox.
 
 ## Policies and credential access
@@ -51,8 +55,8 @@ Acceptance checkboxes require evidence, not assumptions.
   - Static filesystem/process controls are identified as requiring recreation.
 - **Dependencies**: Agent supervision, OpenShell policy/provider commands.
 - **Test Criteria**:
-  - [ ] Rust tests verify allowed mutations and reject invalid names/YAML.
-  - [ ] Browser tests cover review/cancel/apply and backend error reporting.
+  - [x] Rust tests verify allowed mutations and reject invalid names/JSON policies.
+  - [x] Browser tests cover review/cancel/apply and backend error reporting.
   - [ ] Native mutation verified against a disposable authorized sandbox.
 
 ## Activity and usage
@@ -66,22 +70,26 @@ Acceptance checkboxes require evidence, not assumptions.
   - If the installed CLI has no usage surface, show that limitation in the UI.
 - **Dependencies**: OpenShell log command and current CLI contract.
 - **Test Criteria**:
-  - [ ] Tests cover bounded output, log redaction, timeout, and failure paths.
-  - [ ] UI distinguishes unavailable values from observed zero.
+  - [x] Tests cover bounded output, log redaction, timeout, and failure paths.
+  - [x] UI distinguishes unavailable values from observed zero.
+  - Remaining: no upstream usage counters and no live sandbox log acceptance yet.
 
 ## OpenShell update awareness
 
 - **Stability**: in-progress
 - **Description**: Compare the installed CLI against NVIDIA's latest stable release.
 - **Properties**:
-  - Check the official NVIDIA/OpenShell GitHub release endpoint on user request.
+  - Check the official NVIDIA/OpenShell GitHub release endpoint once the CLI is
+    detected, with an explicit button to check again.
   - Distinguish current, update available, ahead, and check unavailable.
   - Link to the official release; never download or execute an installer.
   - A failed update check must not interrupt local gateway access.
 - **Dependencies**: Installed CLI, official GitHub releases API.
 - **Test Criteria**:
-  - [ ] Semver and failure-state tests pass.
-  - [ ] Live release metadata matches the official endpoint.
+  - [x] Semver and failure-state tests pass.
+  - [x] Live release metadata matches the official endpoint.
+  - Evidence: compiled `check_updates` probe and native automatic check both
+    reported installed/latest 0.1.2 on 2026-10-05.
 
 ## Future extensions
 

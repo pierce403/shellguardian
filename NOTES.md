@@ -34,3 +34,60 @@ requires them. `sudo -n true` outside the sandbox returned `interactive
 authentication is required`. The direct Rust 1.97.0 toolchain works; Snap wrappers
 fail under the environment restrictions. Backend contract tests and frontend
 build/browser checks can proceed independently of native GUI dependencies.
+
+## Implementation and acceptance
+
+Implemented the Tauri 2 application, React/TypeScript interface, and a separate
+Rust `openshell-bridge` crate. The adapter exposes only scoped inventory/status,
+policy reads/apply, provider summaries/attachments, lifecycle controls, bounded
+logs, and an independent official release check. The app has no database or
+browser persistence. It does not export provider values or provision gateways.
+
+The inspected 0.1.2 source's sandbox JSON omits image and resource usage. Its CLI
+and gateway API also omit token/billing and credential-use counters. Those are
+displayed as unavailable rather than zero. Startup filesystem/Landlock/process
+settings require recreation. The editor refuses inherited global-policy
+replacement and rechecks hash/configuration revision before applying; this check
+is not atomic because the CLI has no expected-revision write flag.
+
+The Ubuntu runtime libraries were already present. Downloaded 30.8 MB of missing
+development package archives into ignored `.cache/native`, extracted them, and
+resolved development linker symlinks to the installed runtimes. This enabled
+native compilation without a privileged system package install. The helper is
+checked in as `scripts/prepare-linux-headers.sh`. Nothing in that cache is part of
+the desktop application or Git history.
+
+### Verified evidence
+
+- 25 Rust tests passed: fixed/scoped arguments, invalid input rejection, pagination
+  and repeated cursors, independent failures, summary field allowlisting, policy
+  revision checks, global/static policy guards, owner-only temporary files,
+  timeout/output/UTF-8 errors, log redaction, and semantic version comparisons.
+- 11 Chromium checks passed for browser/preview distinction, search, lifecycle
+  review/cancel/apply, provider access, policy comparison, activity, keyboard
+  navigation, workspace selection, unavailable inventories, and narrow layouts.
+  The additional ambiguous-mutation test confirms one request, a disabled retry,
+  and an explicit close/refresh path after an uncertain command error.
+- Frontend production build and TypeScript checks passed. Both lockfiles are
+  committed. Rust formatting and bridge/native Clippy passed with warnings denied.
+- Native Tauri check and packaged debug build passed using the isolated headers.
+  The executable is `target/debug/shellguardian` (unoptimized development build).
+- The compiled read-only `inspect` example returned mTLS authentication, gateway
+  version 0.1.2, and zero sandboxes/providers from the real active local gateway.
+- The compiled update checker returned `current`, installed/latest 0.1.2, official
+  release URL, and publication time 2026-09-28T03:58:00Z.
+- The actual packaged application was driven by tauri-driver 2.1.0 and Ubuntu's
+  WebKitWebDriver on a private Xvfb display. `scripts/native-smoke.mjs` verified
+  real Tauri IPC, installed version, connected local gateway, automatic official
+  release status, and zero local/session storage entries. Native screenshots were
+  inspected visually. Its receipt explicitly reported `mutationsPerformed:false`.
+
+### Remaining acceptance gates
+
+Native start/stop, policy apply and provider changes have contract/browser evidence
+but have not been applied to a real sandbox. Live logs need a sandbox producing
+activity. A physical remote host and cross-platform release builds remain untested.
+No existing sandboxes, providers, keys, policies, gateway selections, or runtime
+services were changed. The current active workspace was empty. Features remain
+`in-progress`; passing a preview or native read-only smoke test does not establish
+production readiness for all controls.
