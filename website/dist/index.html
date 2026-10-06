@@ -51,14 +51,14 @@
         </div>
         <aside class="latest-card" aria-label="Current release">
           <span class="badge">LINUX PREVIEW</span>
-          <h2>v0.2.0</h2>
+          <h2>v0.3.1</h2>
           <p>Released <time datetime="2026-10-06">October 6, 2026</time></p>
           <a
             class="button primary"
-            href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/ShellGuardian_0.2.0_amd64.AppImage"
+            href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/ShellGuardian_0.3.1_amd64.AppImage"
             >Download AppImage</a
           >
-          <p class="file-note">Linux x86_64 · 85.2 MB</p>
+          <p class="file-note">Linux x86_64 · 85.3 MB</p>
           <a href="#releases">Release notes and checksums</a>
         </aside>
       </section>
@@ -92,12 +92,33 @@
               release status. Reuse registered gateways without copying their authentication.
             </p>
           </article>
+          <article>
+            <h3>Connect over SSH</h3>
+            <p>
+              Reach a remote server with your SSH key or agent and its existing OpenShell mTLS
+              profile. Connections last for the app session and close when you disconnect or exit.
+            </p>
+          </article>
+          <article>
+            <h3>Follow your OS</h3>
+            <p>
+              Light and dark appearance follow your system settings, including changes while the app
+              is open. No separate theme preference to maintain.
+            </p>
+          </article>
+          <article>
+            <h3>Pin it on Ubuntu</h3>
+            <p>
+              Find the shield-and-terminal icon in Show Apps and pin it to your dock. The launcher
+              keeps its identity through app updates.
+            </p>
+          </article>
         </div>
         <p class="notice">
-          <strong>Early preview.</strong> Native read-only connection and signed app updates are
-          verified. Live sandbox mutations and physical remote-host acceptance remain open.
-          Inference-token totals, credential-use counters, and CPU/memory usage are unavailable in
-          the inspected OpenShell 0.1.2 CLI.
+          <strong>Early preview.</strong> Native read-only connections, signed app updates, and SSH
+          transport through a local test server are verified. Live sandbox mutations and physical
+          remote-host acceptance remain open. Inference-token totals, credential-use counters, and
+          CPU/memory usage are unavailable in the inspected OpenShell 0.1.2 CLI.
           <a href="https://github.com/pierce403/shellguardian/blob/main/FEATURES.md"
             >Read the acceptance status.</a
           >
@@ -123,6 +144,11 @@
               Register and authenticate your gateway in OpenShell first. ShellGuardian reuses that
               configuration.
             </li>
+            <li>
+              For SSH connections, configure OpenSSH key or agent authentication and trust the
+              server's host key first. Select the remote server's registered mTLS profile in the
+              app.
+            </li>
           </ul>
           <p>macOS, Windows, and Linux ARM packages are not published yet.</p>
         </div>
@@ -147,13 +173,27 @@
           <code>~/.local/bin/shellguardian</code>. The launcher extracts the AppImage without
           requiring FUSE.
         </p>
+        <p>
+          On Ubuntu, you can also launch from Show Apps, then right-click the dock icon and choose
+          <strong>Pin to Dash</strong> or <strong>Add to Favorites</strong>.
+        </p>
+        <h3>Connect to a remote server</h3>
+        <p>
+          Open <strong>OpenShell &amp; settings</strong>, enter <code>user@server</code> or an SSH
+          host alias, and choose that server's OpenShell authentication profile. The remote
+          OpenShell port defaults to <code>17670</code>. Leave the SSH port blank to use your SSH
+          configuration. See the
+          <a href="https://github.com/pierce403/shellguardian/blob/main/README.md#connect-over-ssh"
+            >SSH setup requirements</a
+          >, including gateway certificate requirements.
+        </p>
         <details class="install-details">
           <summary>Inspect the installer or pin a version</summary>
           <p>Download the script to a temporary directory and read it before running it:</p>
           <pre class="plain-command"><code>task_dir=$(mktemp -d)
 curl -fsSL https://shellguardian.org/install.sh -o "$task_dir/install.sh"
 less "$task_dir/install.sh"
-bash "$task_dir/install.sh" --version 0.2.0</code></pre>
+bash "$task_dir/install.sh" --version 0.3.1</code></pre>
           <p>
             <a href="https://github.com/pierce403/shellguardian/blob/main/install.sh"
               >Read the installer source</a
@@ -186,25 +226,27 @@ bash "$task_dir/install.sh" --version 0.2.0</code></pre>
             <p>Versioned downloads, release notes, and verification files.</p>
           </div>
         </div>
-        <article class="release-entry" aria-labelledby="release-020">
+        <article class="release-entry" aria-labelledby="release-031">
           <div class="release-heading">
             <div>
-              <h3 id="release-020">v0.2.0 <span class="badge">LATEST · PREVIEW</span></h3>
+              <h3 id="release-031">v0.3.1 <span class="badge">LATEST · PREVIEW</span></h3>
               <p><time datetime="2026-10-06">October 6, 2026</time> · Linux x86_64</p>
             </div>
-            <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.2.0"
+            <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.3.1"
               >Full release notes</a
             >
           </div>
           <ul class="release-notes">
-            <li>First published Linux AppImage and per-user installer.</li>
-            <li>Default-on automatic app updates with a persistent opt-out.</li>
-            <li>Version-bound signatures, verified downloads, and installation on normal close.</li>
+            <li>
+              Session SSH tunnels using existing OpenShell mTLS profiles and trusted SSH keys.
+            </li>
+            <li>Automatic OS light/dark appearance with live theme detection.</li>
+            <li>Ubuntu launcher icon, dock grouping, and repair of untouched older launchers.</li>
           </ul>
           <div class="download-table">
             <table>
               <caption>
-                v0.2.0 release files
+                v0.3.1 release files
               </caption>
               <thead>
                 <tr>
@@ -216,16 +258,16 @@ bash "$task_dir/install.sh" --version 0.2.0</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/ShellGuardian_0.2.0_amd64.AppImage"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/ShellGuardian_0.3.1_amd64.AppImage"
                       >Linux x86_64 AppImage</a
                     >
                   </th>
-                  <td>Desktop application · 85.2 MB</td>
+                  <td>Desktop application · 85.3 MB</td>
                 </tr>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/install.sh"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/install.sh"
                       >install.sh</a
                     >
                   </th>
@@ -234,7 +276,7 @@ bash "$task_dir/install.sh" --version 0.2.0</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/SHA256SUMS"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/SHA256SUMS"
                       >SHA256SUMS</a
                     >
                   </th>
@@ -243,7 +285,7 @@ bash "$task_dir/install.sh" --version 0.2.0</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/ShellGuardian_0.2.0_amd64.AppImage.sig"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/ShellGuardian_0.3.1_amd64.AppImage.sig"
                       >AppImage signature</a
                     >
                   </th>
@@ -253,10 +295,14 @@ bash "$task_dir/install.sh" --version 0.2.0</code></pre>
             </table>
           </div>
           <p class="release-source">
-            <a href="https://github.com/pierce403/shellguardian/tree/v0.2.0">Source at v0.2.0</a> ·
-            <a href="https://github.com/pierce403/shellguardian/commits/v0.2.0">Changelog</a>
+            <a href="https://github.com/pierce403/shellguardian/tree/v0.3.1">Source at v0.3.1</a> ·
+            <a href="https://github.com/pierce403/shellguardian/commits/v0.3.1">Changelog</a>
           </p>
         </article>
+        <p class="release-history">
+          <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.2.0">v0.2.0</a>
+          · First Linux AppImage, per-user installer, and signed automatic updates.
+        </p>
         <p class="release-history">
           <a href="https://github.com/pierce403/shellguardian/releases">All GitHub releases</a> ·
           <a href="https://github.com/pierce403/shellguardian/releases/latest"
