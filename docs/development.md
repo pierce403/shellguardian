@@ -155,11 +155,11 @@ through the native SSH test. It also requires `desktop-file-validate`, `xwininfo
 and `xprop` for desktop entry and native X11 window identity checks:
 
 ```bash
-node scripts/verify-public-release.mjs 0.3.1
+node scripts/verify-public-release.mjs 0.3.2
 ```
 
 Artifacts, the isolated install, screenshot, and `verification.json` are retained
-under `.cache/public-release-0.3.1`. `HOME` and `XDG_CONFIG_HOME` remain unchanged
+under `.cache/public-release-0.3.2`. `HOME` and `XDG_CONFIG_HOME` remain unchanged
 so OpenShell can use its existing profile; only install/bin paths and
 `XDG_DATA_HOME` point into the test directory. The verifier does not change app
 preferences, OS appearance, or GNOME favorites. The native harness also cleans

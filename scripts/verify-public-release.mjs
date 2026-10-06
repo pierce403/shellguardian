@@ -1,6 +1,6 @@
 // Verify published bytes and an isolated per-user install, then exercise the
 // shipped AppImage through the real native SSH acceptance harness.
-// Usage: node scripts/verify-public-release.mjs 0.3.1
+// Usage: node scripts/verify-public-release.mjs 0.3.2
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
