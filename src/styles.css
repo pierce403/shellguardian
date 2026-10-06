@@ -1,5 +1,40 @@
 @import url('./tokens.css');
 
+.auto-update-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 0;
+}
+.auto-update-row label {
+  font-weight: 650;
+}
+.auto-update-row p {
+  margin-top: 5px;
+  color: var(--muted);
+  max-width: 560px;
+}
+.auto-update-row input {
+  appearance: none;
+  width: 44px;
+  height: 26px;
+  border-radius: 20px;
+  border: 1px solid #a3b3a8;
+  background: #dce3df;
+  flex-shrink: 0;
+  margin-left: auto;
+  cursor: pointer;
+  background-image: radial-gradient(circle at 12px 50%, white 8px, transparent 9px);
+}
+.auto-update-row input:checked {
+  background-color: var(--forest);
+  background-image: radial-gradient(circle at 31px 50%, white 8px, transparent 9px);
+}
+.auto-update-row input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 * {
   box-sizing: border-box;
 }

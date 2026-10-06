@@ -11,6 +11,25 @@ or remote gateways. Selecting a gateway in the app does not change CLI context.
 
 ## Run
 
+Linux x86_64 preview releases are installed per user. No sudo is needed:
+
+```bash
+curl -fsSL https://github.com/pierce403/shellguardian/releases/latest/download/install.sh | bash
+```
+
+Requires existing OpenShell configuration, GTK 3, and WebKitGTK 4.1 runtime
+libraries. The launcher extracts the AppImage without FUSE. Other platforms are
+not published yet. For inspection-first and pinned installation, see
+[installation and updates](docs/releases.md).
+
+Automatic **ShellGuardian** updates default on. Signed updates download while the
+app is open and install when you close it normally, without interrupting an
+OpenShell change. Turn them off in OpenShell & settings. Only this preference is
+saved, in one small `preferences.json` file. There is no database. OpenShell is
+never installed or upgraded automatically.
+
+### Development
+
 Requirements: NVIDIA OpenShell 0.1.2, Node.js 22.12+ (validated with 24.19), Rust
 1.90+, and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
@@ -69,7 +88,7 @@ uses an ignored development cache; it is not part of the application.
   Filesystem, Landlock, and process controls require sandbox recreation.
 - Provider changes wait for acknowledgement. Existing processes can retain their
   old environment, even after the attachment changes for new processes.
-- No gateway provisioning, sandbox creation/deletion, automatic installation,
+- No gateway provisioning, sandbox creation/deletion, automatic OpenShell installation,
   token-budget enforcement, or persistent activity archive is included.
 - Live mutation and remote-host acceptance still require a disposable test
   environment. Existing agents and credentials were not changed during development.

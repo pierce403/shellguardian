@@ -3,6 +3,9 @@
 use openshell_bridge::{model::*, process::ProcessRunner, Bridge, Error};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
+mod app_updates;
+mod preferences;
+use app_updates::AppUpdates;
 
 fn bridge() -> Bridge<ProcessRunner> {
     Bridge::new(ProcessRunner::default())
@@ -25,27 +28,35 @@ async fn get_agent_logs(scope: Scope, name: String) -> Result<String, Error> {
 
 #[tauri::command]
 async fn change_agent_state(
+    updates: tauri::State<'_, AppUpdates>,
     scope: Scope,
     name: String,
     action: LifecycleAction,
 ) -> Result<String, Error> {
+    let _guard = updates.mutation().map_err(Error::new)?;
     bridge().lifecycle(&scope, &name, action).await
 }
 
 #[tauri::command]
 async fn change_provider_access(
+    updates: tauri::State<'_, AppUpdates>,
     scope: Scope,
     name: String,
     provider: String,
     action: ProviderAction,
 ) -> Result<String, Error> {
+    let _guard = updates.mutation().map_err(Error::new)?;
     bridge()
         .provider_change(&scope, &name, &provider, action)
         .await
 }
 
 #[tauri::command]
-async fn apply_agent_policy(edit: PolicyEdit) -> Result<String, Error> {
+async fn apply_agent_policy(
+    updates: tauri::State<'_, AppUpdates>,
+    edit: PolicyEdit,
+) -> Result<String, Error> {
+    let _guard = updates.mutation().map_err(Error::new)?;
     bridge().apply_policy(edit).await
 }
 
@@ -66,6 +77,8 @@ fn open_openshell_releases(app: tauri::AppHandle) -> Result<(), Error> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(app_updates::on_window_event)
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             get_agent_detail,
@@ -74,13 +87,27 @@ fn main() {
             change_provider_access,
             apply_agent_policy,
             check_openshell_updates,
-            open_openshell_releases
+            open_openshell_releases,
+            app_updates::get_shellguardian_update,
+            app_updates::set_auto_update,
+            app_updates::check_shellguardian_update,
+            app_updates::download_shellguardian_update,
+            app_updates::restart_for_update
         ])
         .setup(|app| {
             let window = app
                 .get_webview_window("main")
                 .expect("configured main window");
             window.set_title("ShellGuardian")?;
+            let path = app.path().app_config_dir()?.join("preferences.json");
+            let supported = !cfg!(debug_assertions)
+                && (!cfg!(target_os = "linux") || app.env().appimage.is_some());
+            app.manage(AppUpdates::new(
+                app.package_info().version.to_string(),
+                path,
+                supported,
+            ));
+            app_updates::start(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

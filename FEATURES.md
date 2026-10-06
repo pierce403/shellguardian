@@ -91,6 +91,37 @@ Acceptance checkboxes require evidence, not assumptions.
   - Evidence: compiled `check_updates` probe and native automatic check both
     reported installed/latest 0.1.2 on 2026-10-05.
 
+## ShellGuardian installation and automatic updates
+
+Stability: in-progress
+
+Properties:
+
+- A per-user `curl | bash` installer downloads the stable Linux x86_64 AppImage
+  over HTTPS, verifies the release SHA256, and stages an atomic replacement.
+  No sudo, privileged package changes, or OpenShell installation is performed.
+- Automatic ShellGuardian updates default on. Only the on/off preference is
+  persisted, in one owner-only JSON file, not a database or browser storage.
+- Updates use Tauri's signed, version-bound stable release channel. Downloads
+  are verified before staging in memory and installed on normal close. Explicit
+  restart or manual download is available; opt-out prevents automatic installation.
+- In-flight OpenShell changes block installation/close. Development/raw binary
+  builds do not self-update. OpenShell upgrades remain separate and explicit.
+- A project website explains current scope, installation, update behavior, and
+  platform/prerequisite limitations without presenting sample data as live.
+
+Test Criteria:
+
+- [x] Preference defaults, persistence, permissions, corrupt-file fail-closed behavior,
+  stale download generations, and in-flight mutation guards have Rust tests.
+- [x] Installer checks cover integrity/network failures, unsafe versions, root and
+  unsupported platforms, space-containing paths, rollback, and unmanaged/symlink targets.
+- [x] Browser tests cover the default-on switch, opt-out, and simulated manual update.
+- [ ] Signed public AppImage and installer run successfully from an isolated user path.
+- [ ] Native signed old-to-new update, persistent opt-out, and rejection paths verified.
+- [ ] Website published from exact committed source with functioning installation links.
+- [ ] macOS, Windows, and Linux ARM packages published and accepted. Not yet supported.
+
 ## Future extensions
 
 - **Stability**: planned

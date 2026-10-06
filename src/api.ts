@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { sampleDetail, sampleLogs, sampleSnapshot } from './preview';
+import { version } from '../package.json';
 import type {
   AgentDetail,
   LifecycleAction,
@@ -9,12 +10,48 @@ import type {
   Selection,
   Snapshot,
   UpdateInfo,
+  AppUpdateStatus,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
 export const desktopMode = isTauri();
 let previewSnapshot = structuredClone(sampleSnapshot);
 const previewDetails = new Map<string, AgentDetail>();
+let sampleAppUpdate: AppUpdateStatus = {
+  appVersion: version,
+  enabled: true,
+  supported: false,
+  phase: 'unsupported',
+  latestVersion: null,
+  error: null,
+};
+
+export async function getAppUpdate(): Promise<AppUpdateStatus> {
+  if (!desktopMode || previewMode) return { ...sampleAppUpdate };
+  return invoke('get_shellguardian_update');
+}
+export async function setAutoUpdate(enabled: boolean): Promise<AppUpdateStatus> {
+  if (previewMode) {
+    sampleAppUpdate = { ...sampleAppUpdate, enabled };
+    return { ...sampleAppUpdate };
+  }
+  return invoke('set_auto_update', { enabled });
+}
+export async function checkAppUpdate(download = false): Promise<AppUpdateStatus> {
+  if (previewMode) {
+    sampleAppUpdate = {
+      ...sampleAppUpdate,
+      latestVersion: '0.2.1',
+      phase: download || sampleAppUpdate.enabled ? 'ready' : 'available',
+    };
+    return { ...sampleAppUpdate };
+  }
+  return invoke(download ? 'download_shellguardian_update' : 'check_shellguardian_update');
+}
+export async function restartForUpdate(): Promise<void> {
+  if (previewMode) return;
+  return invoke('restart_for_update');
+}
 
 function previewKey(scope: Scope, name: string) {
   return `${scope.gateway}/${scope.workspace}/${name}`;

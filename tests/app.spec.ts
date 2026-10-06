@@ -156,6 +156,25 @@ test('small-screen layout stays within the viewport', async ({ page }) => {
   await page.screenshot({ path: 'test-results/preview-mobile.png', fullPage: true });
 });
 
+test('automatic app updates default on and sample controls remain simulated', async ({ page }) => {
+  await page.goto('/?preview=1');
+  await page.getByRole('button', { name: 'OpenShell & settings', exact: true }).click();
+  const updates = page.getByRole('region', { name: 'ShellGuardian updates' });
+  const toggle = updates.getByRole('switch', { name: 'Automatic ShellGuardian updates' });
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await expect(toggle).not.toBeChecked();
+  await updates.getByRole('button', { name: 'Check ShellGuardian' }).click();
+  await expect(updates.getByRole('button', { name: 'Download update' })).toBeVisible();
+  await updates.getByRole('button', { name: 'Download update' }).click();
+  await expect(updates).toContainText('No app update is downloaded or installed');
+  await updates.getByRole('button', { name: 'Restart to update' }).click();
+  await expect(page.getByRole('status').last()).toContainText('restart simulated');
+  await toggle.check();
+  await expect(toggle).toBeChecked();
+  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+});
+
 test('desktop bridge errors preserve uncertainty instead of showing sample data', async ({
   page,
 }) => {

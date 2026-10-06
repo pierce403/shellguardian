@@ -1,0 +1,58 @@
+name: Signed Linux release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev patchelf xdg-utils
+      - name: Install Rust
+        run: rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy && rustup default 1.97.0
+      - run: npm ci
+      - name: Check exact release source
+        run: |
+          node -e 'if(process.env.GITHUB_REF_TYPE === "tag" && process.env.GITHUB_REF_NAME !== "v" + JSON.parse(require("fs").readFileSync("package.json")).version) process.exit(1)'
+          npm run build
+          npm run format:check
+          cargo fmt --all -- --check
+          cargo test -p openshell-bridge --locked
+          cargo test -p shellguardian --locked
+          cargo clippy -p openshell-bridge -p shellguardian --all-targets --locked -- -D warnings
+          cargo test --manifest-path vendor/glib/Cargo.toml --release --test shellguardian_variant
+          npm run test:installer
+          npx playwright install --with-deps chromium
+          npm test
+      - name: Build signed AppImage
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: npm run tauri build -- --bundles appimage
+      - name: Prepare checksums and stable update manifest
+        run: node scripts/prepare-release.mjs target/release/bundle/appimage .cache/release
+      - name: Publish complete release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" .cache/release/* --verify-tag --title "ShellGuardian $GITHUB_REF_NAME" --generate-notes --notes 'Linux x86_64 preview. Per-user install, SHA256 verification, and version-bound signed automatic updates. GTK 3 and WebKitGTK 4.1 runtime libraries required. macOS, Windows, and Linux ARM builds are not published yet.'
+      - name: Upload release build for manual checks
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shellguardian-linux-x86_64
+          path: .cache/release/

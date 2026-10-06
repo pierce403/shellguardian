@@ -15,6 +15,8 @@ focused milestones. Do not disturb existing agents to test the application.
 ## Architecture boundaries
 
 - No application database, service daemon, credential vault, or browser storage.
+  The only app preference on disk is `autoUpdate` in `preferences.json` under
+  Tauri's app config directory. It defaults on; unreadable preferences fail closed.
 - Invoke the installed `openshell` executable from Rust with fixed argument
   arrays. Never execute a shell or expose arbitrary command execution over IPC.
 - Reuse OpenShell's registered gateways and authentication. Scope each request
@@ -28,7 +30,11 @@ focused milestones. Do not disturb existing agents to test the application.
   Filesystem/process changes may require sandbox recreation. Do not implement
   fake enforcement, local token budgets, or guessed credential-use counters.
 - Destructive recreation, deletion, installing/upgrading OpenShell, and gateway
-  provisioning are outside the initial interface. Update checks are read-only.
+  provisioning are outside the initial interface. OpenShell update checks are
+  read-only. ShellGuardian self-updates use the fixed, signed GitHub stable channel.
+  Stage verified updates in memory; install on normal close or explicit restart.
+  Never interrupt an in-flight OpenShell mutation. Never disable signature/version
+  verification or expose frontend-controlled URLs, programs, or trust keys.
 
 ## Layout
 
@@ -36,6 +42,9 @@ focused milestones. Do not disturb existing agents to test the application.
 - `src-tauri`: native application and typed IPC commands.
 - `src`: React/TypeScript presentation and explicit sample-preview fixtures.
 - `docs`: architecture, upstream contract, and development instructions.
+- `install.sh`: HTTPS/checksum-verified per-user Linux installer. No root or sudo.
+- `.github/workflows/release.yml`: exact-tag signed Linux AppImage releases.
+- `website`: website source and static assets, mirrored into its Sites checkout.
 - `memory`: compact project observations and dated verification records.
 
 ## Collaboration conventions
@@ -74,3 +83,9 @@ behavior. The guide at https://recurse.bot informed these conventions.
   Tauri's GTK 3 graph requires GLib 0.18. Preserve its provenance and licenses;
   do not format the upstream snapshot. Run its optimized regression before
   changing/removing this backport. See `vendor/glib/SHELLGUARDIAN.md`.
+- Keep the release private key in `TAURI_SIGNING_PRIVATE_KEY` on GitHub and an
+  owner-only ignored backup, never source or logs. The public key in Tauri config
+  is safe to share. Losing the private key prevents updates to existing installs.
+- `npm run test:installer` tests mocked downloads and failure safety. If Node
+  reports `spawnSync bash EPERM` in this restricted process sandbox despite a
+  successful child exit, repeat outside it; do not weaken installer behavior.

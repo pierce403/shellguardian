@@ -1,6 +1,6 @@
 {
   "name": "shellguardian",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "test": "playwright test",
     "test:rust": "cargo test -p openshell-bridge",
+    "test:installer": "node tests/installer.test.mjs",
     "check": "tsc --noEmit",
     "format:check": "prettier --check src tests *.json *.ts src-tauri/tauri.conf.json src-tauri/capabilities/default.json"
   },

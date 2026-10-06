@@ -116,3 +116,31 @@ was manually dismissed. Added two optimized forward/reverse/mixed iterator
 regressions; both passed. The unchanged third-party snapshot emits existing style
 and lifetime warnings on Rust 1.97; it is excluded from workspace formatting.
 Provenance and maintenance/removal conditions are in `vendor/glib/SHELLGUARDIAN.md`.
+
+## 2026-10-06: website, installer, and signed app updates
+
+The user requested a website, `curl | bash` installer, and default-on auto-update.
+This applies to ShellGuardian, not automatic OpenShell upgrades. App state remains
+database-free; the only added persistent preference is the update opt-out.
+
+Implemented a fixed stable-channel Tauri updater with signature and signed-version
+verification, staged in-memory downloads, install-on-normal-close, explicit restart,
+and in-flight OpenShell mutation guards. Missing preferences default on; unreadable
+preferences fail closed. Off cancels/discards staged work; failed saves do not claim
+the user's choice was persisted. Raw/development Linux binaries do not self-update.
+
+Created the project-specific signing key under owner-only ignored `.cache/signing`
+and saved it as `TAURI_SIGNING_PRIVATE_KEY` in the repo's Actions secrets. Only the
+public verification key is committed. This backup must be preserved outside build
+caches before cleanup. Workflow actions are pinned to verified official commit SHAs.
+
+Eight native updater/preference unit tests and twelve Chromium app checks passed.
+Nine installer checks passed outside the process sandbox. A `spawnSync bash EPERM`
+inside the restricted sandbox occurred even though its child exited successfully;
+the same check passed outside it. The script tests HTTPS flags, checksums, root/
+unsupported-platform refusal, malformed versions, network failure, preserved existing
+files, symlink/unmanaged targets, space paths, and reinstall rollback.
+
+Public release, native signed-update, and website acceptance evidence follows once
+those stages complete. Linux x86_64 is the initial supported release platform;
+other platform builds must not be advertised as available without real artifacts.

@@ -77,3 +77,11 @@ export interface UpdateInfo {
 }
 export type LifecycleAction = 'start' | 'stop';
 export type ProviderAction = 'attach' | 'detach';
+export interface AppUpdateStatus {
+  appVersion: string;
+  enabled: boolean;
+  supported: boolean;
+  phase: string;
+  latestVersion: string | null;
+  error: string | null;
+}

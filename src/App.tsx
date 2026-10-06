@@ -35,6 +35,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import * as api from './api';
+import AppUpdates, { useAppUpdates } from './AppUpdates';
 import type {
   Agent,
   AgentDetail,
@@ -45,6 +46,7 @@ import type {
   Selection,
   Snapshot,
   UpdateInfo,
+  AppUpdateStatus,
 } from './types';
 
 type Page = 'overview' | 'agents' | 'credentials' | 'activity' | 'openshell';
@@ -847,6 +849,8 @@ function OpenShellPage({
   update,
   checking,
   onCheck,
+  appUpdate,
+  onAppUpdate,
 }: {
   data: Snapshot | null;
   selection: Selection;
@@ -855,6 +859,8 @@ function OpenShellPage({
   update: UpdateInfo | null;
   checking: boolean;
   onCheck: () => void;
+  appUpdate: AppUpdateStatus | null;
+  onAppUpdate: (value: AppUpdateStatus) => void;
 }) {
   const [workspace, setWorkspace] = useState(selection.workspace);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -868,6 +874,7 @@ function OpenShellPage({
   }
   return (
     <div className="settings-layout">
+      <AppUpdates status={appUpdate} onStatus={onAppUpdate} onToast={onToast} />
       <section className="settings-card">
         <div className="settings-heading">
           <div className="provider-icon">
@@ -1012,6 +1019,7 @@ function OpenShellPage({
 }
 
 export default function App() {
+  const { status: appUpdate, setStatus: setAppUpdate } = useAppUpdates();
   const [page, setPage] = useState<Page>('overview');
   const [selection, setSelection] = useState<Selection>({ gateway: null, workspace: 'default' });
   const { data, busy, error, refresh } = useSnapshot(selection);
@@ -1566,6 +1574,8 @@ export default function App() {
               selection={selection}
               onWorkspace={(workspace) => setSelection((current) => ({ ...current, workspace }))}
               onToast={setToast}
+              appUpdate={appUpdate}
+              onAppUpdate={setAppUpdate}
               update={update}
               checking={checkingUpdate}
               onCheck={() => {
@@ -1578,7 +1588,7 @@ export default function App() {
             <span>
               <ShieldCheck size={14} />A clear view. OpenShell in control.
             </span>
-            <span>ShellGuardian 0.1.0</span>
+            <span>ShellGuardian {appUpdate?.appVersion ?? 'version unavailable'}</span>
           </footer>
         </main>
       </div>
