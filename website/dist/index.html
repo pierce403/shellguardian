@@ -51,11 +51,11 @@
         </div>
         <aside class="latest-card" aria-label="Current release">
           <span class="badge">LINUX PREVIEW</span>
-          <h2>v0.3.1</h2>
+          <h2>v0.3.2</h2>
           <p>Released <time datetime="2026-10-06">October 6, 2026</time></p>
           <a
             class="button primary"
-            href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/ShellGuardian_0.3.1_amd64.AppImage"
+            href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/ShellGuardian_0.3.2_amd64.AppImage"
             >Download AppImage</a
           >
           <p class="file-note">Linux x86_64 · 85.3 MB</p>
@@ -193,7 +193,7 @@
           <pre class="plain-command"><code>task_dir=$(mktemp -d)
 curl -fsSL https://shellguardian.org/install.sh -o "$task_dir/install.sh"
 less "$task_dir/install.sh"
-bash "$task_dir/install.sh" --version 0.3.1</code></pre>
+bash "$task_dir/install.sh" --version 0.3.2</code></pre>
           <p>
             <a href="https://github.com/pierce403/shellguardian/blob/main/install.sh"
               >Read the installer source</a
@@ -226,27 +226,27 @@ bash "$task_dir/install.sh" --version 0.3.1</code></pre>
             <p>Versioned downloads, release notes, and verification files.</p>
           </div>
         </div>
-        <article class="release-entry" aria-labelledby="release-031">
+        <article class="release-entry" aria-labelledby="release-032">
           <div class="release-heading">
             <div>
-              <h3 id="release-031">v0.3.1 <span class="badge">LATEST · PREVIEW</span></h3>
+              <h3 id="release-032">v0.3.2 <span class="badge">LATEST · PREVIEW</span></h3>
               <p><time datetime="2026-10-06">October 6, 2026</time> · Linux x86_64</p>
             </div>
-            <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.3.1"
+            <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.3.2"
               >Full release notes</a
             >
           </div>
           <ul class="release-notes">
+            <li>Aligns Wayland and X11 window identities with the Ubuntu launcher.</li>
+            <li>Resolves the shield icon directly and repairs managed launchers before opening.</li>
             <li>
-              Session SSH tunnels using existing OpenShell mTLS profiles and trusted SSH keys.
+              Close and reopen after updating. Custom launchers and dock favorites stay yours.
             </li>
-            <li>Automatic OS light/dark appearance with live theme detection.</li>
-            <li>Ubuntu launcher icon, dock grouping, and repair of untouched older launchers.</li>
           </ul>
           <div class="download-table">
             <table>
               <caption>
-                v0.3.1 release files
+                v0.3.2 release files
               </caption>
               <thead>
                 <tr>
@@ -258,7 +258,7 @@ bash "$task_dir/install.sh" --version 0.3.1</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/ShellGuardian_0.3.1_amd64.AppImage"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/ShellGuardian_0.3.2_amd64.AppImage"
                       >Linux x86_64 AppImage</a
                     >
                   </th>
@@ -267,7 +267,7 @@ bash "$task_dir/install.sh" --version 0.3.1</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/install.sh"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/install.sh"
                       >install.sh</a
                     >
                   </th>
@@ -276,7 +276,7 @@ bash "$task_dir/install.sh" --version 0.3.1</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/SHA256SUMS"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/SHA256SUMS"
                       >SHA256SUMS</a
                     >
                   </th>
@@ -285,7 +285,7 @@ bash "$task_dir/install.sh" --version 0.3.1</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.1/ShellGuardian_0.3.1_amd64.AppImage.sig"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/ShellGuardian_0.3.2_amd64.AppImage.sig"
                       >AppImage signature</a
                     >
                   </th>
@@ -295,10 +295,14 @@ bash "$task_dir/install.sh" --version 0.3.1</code></pre>
             </table>
           </div>
           <p class="release-source">
-            <a href="https://github.com/pierce403/shellguardian/tree/v0.3.1">Source at v0.3.1</a> ·
-            <a href="https://github.com/pierce403/shellguardian/commits/v0.3.1">Changelog</a>
+            <a href="https://github.com/pierce403/shellguardian/tree/v0.3.2">Source at v0.3.2</a> ·
+            <a href="https://github.com/pierce403/shellguardian/commits/v0.3.2">Changelog</a>
           </p>
         </article>
+        <p class="release-history">
+          <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.3.1">v0.3.1</a>
+          · Session SSH tunnels, OS light/dark appearance, and initial Ubuntu launcher integration.
+        </p>
         <p class="release-history">
           <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.2.0">v0.2.0</a>
           · First Linux AppImage, per-user installer, and signed automatic updates.
