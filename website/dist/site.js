@@ -1,6 +1,7 @@
 const copy = document.querySelector('#copy-install');
 const command = document.querySelector('#install-command');
 const status = document.querySelector('#copy-status');
+copy.hidden = false;
 copy.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(command.textContent.trim());

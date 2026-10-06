@@ -229,3 +229,30 @@ DNS, public DoH, named TLS to the authoritative edge, ordinary HTTPS when resolv
 and the live browser independently confirmed the public origin. Native test drivers
 and preview listeners are stopped; only committed source, signed public assets,
 ignored test receipts/caches, and the protected signing-key backup remain.
+
+## 2026-10-06: static project website clarification
+
+The user clarified that shellguardian.org should describe the desktop project,
+installation, and releases, with links to GitHub. The existing production source
+was already static HTML, not the Tauri build, but its marketing-style layout lacked
+an explicit release catalog. Reworked it into About, Install, and Releases sections
+with versioned AppImage, installer, checksum, signature, release/source, documentation,
+and issue links. Moved the sample screenshot below the release information and
+explicitly distinguished the locally running app from the hosted project page.
+
+Verified current GitHub v0.2.0 release metadata before authoring the static snapshot:
+published 2026-10-06, Linux x86_64 AppImage 85,174,776 bytes, and all advertised
+verification files uploaded. No app binaries, gateway registrations, agents, DNS,
+mail, or hosting architecture were changed. The existing Worker only handles the
+HTTPS redirect and static assets; only `website/dist` is deployed.
+
+The optional copy button starts hidden and is enabled by its tiny helper. All
+project, installation, and release information lives in the HTML, without remote
+fetches or browser storage. Added dependency-free checks for section/anchor/asset
+links, versioned downloads, and copy success plus clipboard-denied fallback.
+Public deployment and browser acceptance evidence follows below.
+
+Pre-publication checks passed: transport tests, static content/links, copy helper
+success/fallback, formatting/diff checks, and Wrangler's static-assets dry-run.
+All 17 distinct advertised project GitHub URLs returned HTTP 200, including each
+versioned download, documentation, license, releases, and issue tracker.

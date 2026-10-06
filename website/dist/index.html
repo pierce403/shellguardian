@@ -3,229 +3,323 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ShellGuardian | A control room for OpenShell agents</title>
+    <title>ShellGuardian | Project, installation, and releases</title>
     <meta
       name="description"
-      content="A small, open-source desktop control room for NVIDIA OpenShell. See agent access, review policies, manage provider attachments, and stay up to date."
+      content="ShellGuardian is an open-source Tauri desktop app for NVIDIA OpenShell agents. Project overview, Linux installation instructions, release downloads, and checksums."
     />
     <meta name="theme-color" content="#173c30" />
     <link rel="canonical" href="https://shellguardian.org/" />
-    <link
-      rel="icon"
-      type="image/svg+xml"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23173c30'/%3E%3Cpath d='M20 7 31 11v9c0 7-11 13-11 13S9 27 9 20v-9Z' fill='none' stroke='%23d6f39b' stroke-width='2'/%3E%3Cpath d='m15 16 4 4-4 4m7 0h4' fill='none' stroke='%23d6f39b' stroke-width='2'/%3E%3C/svg%3E"
-    />
+    <link rel="icon" type="image/svg+xml" href="/mark.svg" />
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/site.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header wrap">
-      <a class="brand" href="#" aria-label="ShellGuardian home"
-        ><img src="/mark.svg" alt="" width="35" height="35" /><span>ShellGuardian</span></a
+      <a class="brand" href="#about" aria-label="ShellGuardian home"
+        ><img src="/mark.svg" alt="" width="34" height="34" /><span>ShellGuardian</span></a
       >
       <nav aria-label="Main navigation">
-        <a href="#control">The app</a><a href="#install">Install</a
-        ><a href="https://github.com/pierce403/shellguardian"
-          >GitHub <span aria-hidden="true">↗</span></a
-        >
+        <a href="#about">About</a><a href="#install">Install</a><a href="#releases">Releases</a
+        ><a href="https://github.com/pierce403/shellguardian">GitHub</a>
       </nav>
     </header>
-    <main id="main">
-      <section class="hero wrap" aria-labelledby="hero-title">
-        <div class="hero-copy">
-          <p class="eyebrow">A CONTROL ROOM FOR NVIDIA OPENSHELL</p>
-          <h1 id="hero-title">Your agents.<br /><em>Your boundaries.</em></h1>
-          <p class="intro">
-            Give agents room to work. Keep a clear view of what they can access, which providers
-            they use, and where they run.
+    <main id="main" class="wrap">
+      <section id="about" class="project-intro" aria-labelledby="project-title">
+        <div>
+          <p class="eyebrow">OPEN-SOURCE DESKTOP APP</p>
+          <h1 id="project-title">ShellGuardian</h1>
+          <p class="lead">A desktop control room for NVIDIA OpenShell agents.</p>
+          <p class="description">
+            ShellGuardian is a Tauri app that makes agent access easier to understand and manage.
+            Run it on your computer to inspect sandbox policies, review provider attachments, and
+            connect through your installed OpenShell CLI to registered gateways on localhost, your
+            local network, or remote systems.
           </p>
-          <div class="hero-actions">
-            <a class="button primary" href="#install">Install ShellGuardian</a
-            ><a class="text-link" href="https://github.com/pierce403/shellguardian"
-              >Explore the source</a
-            >
+          <p class="ownership">
+            OpenShell owns credentials, agent state, authentication, and enforcement. ShellGuardian
+            is a thin frontend with no agent database or separate policy engine. This website only
+            provides project information and downloads; it does not connect to your agents.
+          </p>
+          <div class="project-links">
+            <a href="https://github.com/pierce403/shellguardian">GitHub repository</a
+            ><a href="https://github.com/pierce403/shellguardian/blob/main/LICENSE"
+              >Apache-2.0 license</a
+            ><a href="https://github.com/NVIDIA/OpenShell">NVIDIA OpenShell</a>
           </div>
-          <p class="release-note">
-            Linux x86_64 preview <span>·</span> Apache-2.0 <span>·</span> No account required
-          </p>
         </div>
-        <figure class="product-shot">
-          <div class="shot-bar">
-            <span class="shot-brand">SHELLGUARDIAN</span><span>Sample environment</span>
-          </div>
-          <img
-            src="/overview.png"
-            width="1440"
-            height="1000"
-            alt="ShellGuardian's sample overview showing four agents, their sandbox states, and OpenShell access controls."
-            fetchpriority="high"
-          />
-          <figcaption>
-            Actual app interface, with illustrative agents. Not live telemetry.
-          </figcaption>
-        </figure>
+        <aside class="latest-card" aria-label="Current release">
+          <span class="badge">LINUX PREVIEW</span>
+          <h2>v0.2.0</h2>
+          <p>Released <time datetime="2026-10-06">October 6, 2026</time></p>
+          <a
+            class="button primary"
+            href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/ShellGuardian_0.2.0_amd64.AppImage"
+            >Download AppImage</a
+          >
+          <p class="file-note">Linux x86_64 · 85.2 MB</p>
+          <a href="#releases">Release notes and checksums</a>
+        </aside>
       </section>
-      <div class="ownership wrap">
-        <span>One source of truth.</span>
-        <p>
-          OpenShell runs the agents and enforces their rules.<br />ShellGuardian makes that easier
-          to see and manage.
-        </p>
-        <a href="https://github.com/NVIDIA/OpenShell">Meet OpenShell</a>
-      </div>
-      <section id="control" class="control-section wrap" aria-labelledby="control-title">
+      <section class="project-section" aria-labelledby="features-title">
         <div class="section-heading">
-          <p class="eyebrow">SMALL FRONTEND. CLEAR OVERSIGHT.</p>
-          <h2 id="control-title">A little more clarity.<br />A lot less terminal juggling.</h2>
+          <span class="section-number">01</span>
+          <div>
+            <h2 id="features-title">What the app does</h2>
+            <p>A clear view of your existing OpenShell environment.</p>
+          </div>
         </div>
         <div class="feature-grid">
           <article>
-            <span class="feature-number">01 / ACCESS</span>
-            <h3>Know the boundaries.</h3>
+            <h3>Inspect access</h3>
             <p>
-              Inspect network policies and provider attachments for each sandbox. Review a change
-              before asking OpenShell to apply it.
+              Read effective and base policies, inspect filesystem and network boundaries, and see
+              which credential providers are attached. Credential values stay out of the interface.
             </p>
-            <div class="capability">Policy review <span>·</span> Credential names only</div>
           </article>
           <article>
-            <span class="feature-number">02 / CONTROL</span>
-            <h3>Stay in the driver's seat.</h3>
+            <h3>Review changes</h3>
             <p>
-              Start and stop sandboxes, grant or revoke provider attachments, and inspect bounded
-              activity logs from one focused interface.
+              Review the target sandbox and workspace before starting or stopping a sandbox,
+              changing provider access, or asking OpenShell to apply a network policy.
             </p>
-            <div class="capability">Reviewed actions <span>·</span> Explicit workspace</div>
           </article>
           <article>
-            <span class="feature-number">03 / CONNECTION</span>
-            <h3>Local or remote. Same view.</h3>
+            <h3>Stay informed</h3>
             <p>
-              Reuse the gateways already registered with your local OpenShell CLI. No second
-              account, copied keys, or separate policy engine.
+              Read bounded activity logs and see the installed OpenShell version and official
+              release status. Reuse registered gateways without copying their authentication.
             </p>
-            <div class="capability">OpenShell authentication <span>·</span> No database</div>
           </article>
         </div>
-      </section>
-      <section id="install" class="install-section wrap" aria-labelledby="install-title">
-        <div class="install-copy">
-          <p class="eyebrow">LESS SETUP. MORE SUPERVISION.</p>
-          <h2 id="install-title">Meet your agents<br />where they already work.</h2>
-          <p>
-            OpenShell already configured? Install the desktop app in your user account. No sudo. No
-            changes to your agents.
-          </p>
-          <a
-            class="button primary"
-            href="https://github.com/pierce403/shellguardian/releases/latest"
-            >Download the Linux release</a
+        <p class="notice">
+          <strong>Early preview.</strong> Native read-only connection and signed app updates are
+          verified. Live sandbox mutations and physical remote-host acceptance remain open.
+          Inference-token totals, credential-use counters, and CPU/memory usage are unavailable in
+          the inspected OpenShell 0.1.2 CLI.
+          <a href="https://github.com/pierce403/shellguardian/blob/main/FEATURES.md"
+            >Read the acceptance status.</a
           >
-          <p class="platform-note">
-            Linux x86_64 with GTK 3 and WebKitGTK 4.1.<br />macOS, Windows, and Linux ARM builds are
-            not available yet.
-          </p>
+        </p>
+      </section>
+      <section id="install" class="project-section" aria-labelledby="install-title">
+        <div class="section-heading">
+          <span class="section-number">02</span>
+          <div>
+            <h2 id="install-title">Install</h2>
+            <p>Per-user installation. No sudo or changes to your agents.</p>
+          </div>
         </div>
-        <div class="install-panel">
-          <div class="terminal-heading">
-            <span>QUICK INSTALL</span
-            ><button id="copy-install" type="button" aria-label="Copy install command">
+        <div class="requirements">
+          <h3>Before you install</h3>
+          <ul>
+            <li>Linux x86_64 with GTK 3 and WebKitGTK 4.1 runtime libraries.</li>
+            <li>
+              An installed and configured NVIDIA OpenShell CLI. The inspected integration targets
+              OpenShell 0.1.2.
+            </li>
+            <li>
+              Register and authenticate your gateway in OpenShell first. ShellGuardian reuses that
+              configuration.
+            </li>
+          </ul>
+          <p>macOS, Windows, and Linux ARM packages are not published yet.</p>
+        </div>
+        <div class="command-block">
+          <div class="command-heading">
+            <span>INSTALL THE LATEST RELEASE</span
+            ><button id="copy-install" type="button" aria-label="Copy install command" hidden>
               Copy command
             </button>
           </div>
           <pre><code id="install-command">curl -fsSL https://shellguardian.org/install.sh | bash</code></pre>
-          <div class="install-details">
-            <p>
-              <strong>Installs only ShellGuardian.</strong> Downloads over HTTPS, checks the release
-              SHA256, and adds a per-user launcher. OpenShell stays untouched.
-            </p>
+          <p id="copy-status" role="status" aria-live="polite"></p>
+        </div>
+        <p>
+          The installer downloads the AppImage over HTTPS, verifies its SHA256 checksum, and adds a
+          launcher and desktop entry in your user account. It never installs or upgrades OpenShell.
+        </p>
+        <h3>Launch</h3>
+        <pre class="plain-command"><code>shellguardian</code></pre>
+        <p>
+          If <code>~/.local/bin</code> is not on your PATH, use
+          <code>~/.local/bin/shellguardian</code>. The launcher extracts the AppImage without
+          requiring FUSE.
+        </p>
+        <details class="install-details">
+          <summary>Inspect the installer or pin a version</summary>
+          <p>Download the script to a temporary directory and read it before running it:</p>
+          <pre class="plain-command"><code>task_dir=$(mktemp -d)
+curl -fsSL https://shellguardian.org/install.sh -o "$task_dir/install.sh"
+less "$task_dir/install.sh"
+bash "$task_dir/install.sh" --version 0.2.0</code></pre>
+          <p>
             <a href="https://github.com/pierce403/shellguardian/blob/main/install.sh"
-              >Read the installer first</a
-            ><a href="https://github.com/pierce403/shellguardian/blob/main/docs/releases.md"
-              >Prerequisites &amp; install details</a
+              >Read the installer source</a
+            >
+            ·
+            <a href="https://github.com/pierce403/shellguardian/blob/main/docs/releases.md"
+              >Runtime requirements, custom paths, and installation details</a
+            >
+          </p>
+        </details>
+        <div class="update-note">
+          <h3>Automatic updates are on by default</h3>
+          <p>
+            The desktop app checks for signed ShellGuardian releases at launch and every six hours
+            while open. Verified updates install on normal close, or when you choose “Restart to
+            update.” In-flight OpenShell changes block installation.
+          </p>
+          <p>
+            Turn automatic app updates off in <strong>OpenShell &amp; settings</strong>. That choice
+            is saved in one small preference file, not a database. OpenShell upgrades remain
+            separate and explicit.
+          </p>
+        </div>
+      </section>
+      <section id="releases" class="project-section" aria-labelledby="releases-title">
+        <div class="section-heading">
+          <span class="section-number">03</span>
+          <div>
+            <h2 id="releases-title">Releases</h2>
+            <p>Versioned downloads, release notes, and verification files.</p>
+          </div>
+        </div>
+        <article class="release-entry" aria-labelledby="release-020">
+          <div class="release-heading">
+            <div>
+              <h3 id="release-020">v0.2.0 <span class="badge">LATEST · PREVIEW</span></h3>
+              <p><time datetime="2026-10-06">October 6, 2026</time> · Linux x86_64</p>
+            </div>
+            <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.2.0"
+              >Full release notes</a
             >
           </div>
-          <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-        </div>
-      </section>
-      <section class="update-section wrap" aria-labelledby="updates-title">
-        <div class="update-label">
-          <span class="on-badge">ON BY DEFAULT</span>
-          <h2 id="updates-title">Current, without<br />interrupting your work.</h2>
-        </div>
-        <div class="update-copy">
-          <p>
-            ShellGuardian checks for its own updates at launch and every six hours while open.
-            Signed updates download in the background and install when you close the app normally.
+          <ul class="release-notes">
+            <li>First published Linux AppImage and per-user installer.</li>
+            <li>Default-on automatic app updates with a persistent opt-out.</li>
+            <li>Version-bound signatures, verified downloads, and installation on normal close.</li>
+          </ul>
+          <div class="download-table">
+            <table>
+              <caption>
+                v0.2.0 release files
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">File</th>
+                  <th scope="col">Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">
+                    <a
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/ShellGuardian_0.2.0_amd64.AppImage"
+                      >Linux x86_64 AppImage</a
+                    >
+                  </th>
+                  <td>Desktop application · 85.2 MB</td>
+                </tr>
+                <tr>
+                  <th scope="row">
+                    <a
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/install.sh"
+                      >install.sh</a
+                    >
+                  </th>
+                  <td>Per-user Bash installer</td>
+                </tr>
+                <tr>
+                  <th scope="row">
+                    <a
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/SHA256SUMS"
+                      >SHA256SUMS</a
+                    >
+                  </th>
+                  <td>Checksums for all release files</td>
+                </tr>
+                <tr>
+                  <th scope="row">
+                    <a
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.2.0/ShellGuardian_0.2.0_amd64.AppImage.sig"
+                      >AppImage signature</a
+                    >
+                  </th>
+                  <td>Tauri updater signature with the signed version</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="release-source">
+            <a href="https://github.com/pierce403/shellguardian/tree/v0.2.0">Source at v0.2.0</a> ·
+            <a href="https://github.com/pierce403/shellguardian/commits/v0.2.0">Changelog</a>
           </p>
-          <p>
-            Prefer to choose? Turn automatic updates off in settings. Your choice is saved in one
-            small preference file. No database, update daemon, or browser storage.
-          </p>
-          <p class="important">
-            OpenShell updates are separate. We show its installed version and release status, but
-            never upgrade your runtime automatically.
-          </p>
-        </div>
+        </article>
+        <p class="release-history">
+          <a href="https://github.com/pierce403/shellguardian/releases">All GitHub releases</a> ·
+          <a href="https://github.com/pierce403/shellguardian/releases/latest"
+            >Latest published release</a
+          >
+        </p>
+        <p class="muted">
+          Release details here are static. The installer and desktop updater use the latest
+          published GitHub release.
+        </p>
       </section>
-      <section class="questions wrap" aria-labelledby="questions-title">
-        <h2 id="questions-title">A few useful boundaries.</h2>
-        <div class="question-list">
-          <details>
-            <summary>Does ShellGuardian replace OpenShell?</summary>
-            <p>
-              No. OpenShell owns credentials, authentication, agent state, policy enforcement, and
-              sandbox isolation. ShellGuardian delegates through your installed CLI and registered
-              gateways. It is an independent project, not an NVIDIA product.
-            </p>
-          </details>
-          <details>
-            <summary>Can I track inference tokens or credential usage?</summary>
-            <p>
-              Not yet. The inspected OpenShell 0.1.2 CLI does not expose token totals,
-              credential-use counters, or CPU/memory usage. ShellGuardian marks those as
-              unavailable, never as zero. Provider attachments describe access, not evidence that a
-              credential was used.
-            </p>
-          </details>
-          <details>
-            <summary>What stays on my computer?</summary>
-            <p>
-              Your existing OpenShell configuration stays where it is. ShellGuardian adds an
-              executable, launcher, desktop entry, and at most one update-preference file. It does
-              not add a database, copy secrets, or archive agent activity.
-            </p>
-          </details>
-          <details>
-            <summary>How ready is the app?</summary>
-            <p>
-              This is an early Linux preview. CLI contracts and browser flows are tested, but live
-              policy/provider/lifecycle mutation and physical remote-host acceptance are still open.
-              Use a disposable test environment before trusting new controls in an important
-              workflow.
-              <a href="https://github.com/pierce403/shellguardian/blob/main/FEATURES.md"
-                >See acceptance evidence.</a
-              >
-            </p>
-          </details>
+      <section class="project-section" aria-labelledby="screenshot-title">
+        <div class="section-heading">
+          <span class="section-number">04</span>
+          <div>
+            <h2 id="screenshot-title">Desktop app preview</h2>
+            <p>The app runs on your computer, not in this website.</p>
+          </div>
         </div>
+        <figure class="product-shot">
+          <img
+            src="/overview.png"
+            alt="A screenshot of the ShellGuardian desktop app showing an illustrative OpenShell environment."
+            width="1440"
+            height="1000"
+            loading="lazy"
+          />
+          <figcaption>
+            Static screenshot with sample agents. No live agents or controls are exposed on this
+            website.
+          </figcaption>
+        </figure>
       </section>
-      <section class="last-call wrap">
-        <h2>Let them work.<br /><span>Keep the guardrails in view.</span></h2>
-        <a class="button primary" href="#install">Install ShellGuardian</a>
+      <section class="project-section project-docs" aria-labelledby="docs-title">
+        <div class="section-heading">
+          <span class="section-number">05</span>
+          <div>
+            <h2 id="docs-title">Documentation and development</h2>
+            <p>Inspect the code, follow progress, or report an issue.</p>
+          </div>
+        </div>
+        <div class="doc-links">
+          <a href="https://github.com/pierce403/shellguardian/blob/main/README.md"
+            >Getting started</a
+          ><a href="https://github.com/pierce403/shellguardian/blob/main/docs/architecture.md"
+            >Architecture</a
+          ><a href="https://github.com/pierce403/shellguardian/blob/main/FEATURES.md"
+            >Feature status</a
+          ><a href="https://github.com/pierce403/shellguardian/issues">Issue tracker</a>
+        </div>
+        <p>
+          ShellGuardian is an independent Apache-2.0 project, not an NVIDIA product. Development
+          follows the agent collaboration guidance at
+          <a href="https://recurse.bot/">recurse.bot</a>.
+        </p>
       </section>
     </main>
     <footer class="site-footer wrap">
-      <a class="brand" href="#"
-        ><img src="/mark.svg" alt="" width="28" height="28" /><span>ShellGuardian</span></a
-      >
-      <p>Independent. Open source. OpenShell in control.</p>
-      <div>
-        <a href="https://github.com/pierce403/shellguardian">Source</a
-        ><a href="https://github.com/pierce403/shellguardian/issues">Issues</a
-        ><a href="https://recurse.bot/">How we work</a>
-      </div>
+      <span>ShellGuardian</span>
+      <p>
+        Project information and downloads ·
+        <a href="https://github.com/pierce403/shellguardian">GitHub</a>
+      </p>
     </footer>
   </body>
 </html>

@@ -1,6 +1,6 @@
 # ShellGuardian website
 
-Static product/download website. `dist/` is tracked source, not the desktop build.
+Static HTML project/download website. `dist/` is tracked source, not the desktop build.
 Production is https://shellguardian.org, deployed as Cloudflare Workers Static
 Assets in the user's existing account. The apex custom domain is managed by the
 Worker's route; do not replace unrelated zone or mail records.
@@ -19,6 +19,13 @@ secrets, storage, or persistent deploy credentials are added. The tiny Worker
 only upgrades HTTP to HTTPS and passes HTTPS requests to static assets. Wrangler
 reuses the user's existing local OAuth authorization.
 
+About, Install, and Releases content is authored directly in `dist/index.html`.
+GitHub repository, releases, checksums, signatures, documentation, and issue links
+are ordinary anchors. Release details are a static snapshot: update them after
+verifying the actual published assets. `site.js` only enables copying the install
+command; the content and links work without JavaScript. The website never runs the
+Tauri app, communicates with an OpenShell gateway, or stores app state.
+
 The earlier owner-private Sites preview retains its identity in
 `.openai/hosting.json` and source checkout `/home/pierce/projects/shellguardian-website`.
 It is not the production origin. Preserve its Git metadata if editing that preview.
@@ -34,3 +41,4 @@ validate dry-run and audit before changing/removing it. It is not shipped to bro
 Verify responsive/keyboard rendering, copy-command behavior, local asset paths,
 and public release links when changing this site. Keep release/platform claims
 aligned with actual signed assets and root `FEATURES.md` acceptance gates.
+`npm run check` also checks static content/links and copy success/fallback behavior.

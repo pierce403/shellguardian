@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check dist/site.js && node --check worker.js && node worker.test.mjs",
+    "check": "node --check dist/site.js && node --check worker.js && node worker.test.mjs && node site.test.mjs",
     "deploy:check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
     "types": "wrangler types"

@@ -47,6 +47,9 @@ focused milestones. Do not disturb existing agents to test the application.
 - `website`: static website, independent npm lockfile, and Cloudflare deployment
   config for shellguardian.org. Commit/push before deploy; verify public byte parity
   and HTTPS/installer redirect. Do not replace unrelated DNS or mail records.
+  Publish only `website/dist`, never the Tauri app's root `dist`. Keep project,
+  installation, release, and GitHub information in plain HTML; JavaScript is an
+  optional copy-command helper. The website must not connect to OpenShell servers.
 - `memory`: compact project observations and dated verification records.
 
 ## Collaboration conventions

@@ -109,20 +109,25 @@ Properties:
   builds do not self-update. OpenShell upgrades remain separate and explicit.
 - A project website explains current scope, installation, update behavior, and
   platform/prerequisite limitations without presenting sample data as live.
+  It is plain HTML with About, Install, and Releases sections, versioned downloads,
+  checksums, and GitHub/docs/issue links. Only an optional copy helper uses JavaScript.
+  The Tauri app runs locally; the hosted website never connects to OpenShell.
 
 Test Criteria:
 
 - [x] Preference defaults, persistence, permissions, corrupt-file fail-closed behavior,
-  stale download generations, and in-flight mutation guards have Rust tests.
+      stale download generations, and in-flight mutation guards have Rust tests.
 - [x] Installer checks cover integrity/network failures, unsafe versions, root and
-  unsupported platforms, space-containing paths, rollback, and unmanaged/symlink targets.
+      unsupported platforms, space-containing paths, rollback, and unmanaged/symlink targets.
 - [x] Browser tests cover the default-on switch, opt-out, and simulated manual update.
 - [x] Public release assets verified by checksum, installed in an isolated user path,
-  and the shipped AppImage connects to the real local OpenShell gateway.
+      and the shipped AppImage connects to the real local OpenShell gateway.
 - [x] Native signed old-to-new update installs on normal close; opt-out persists across restart.
 - [ ] Adversarial signature/version/network responses exercised through the native updater.
 - [x] Website published at shellguardian.org from committed source; HTTPS, content
-  parity, browser rendering, and installation redirect/bytes verified.
+      parity, browser rendering, and installation redirect/bytes verified.
+- [ ] Revised static project/release page accepted in the public browser, including
+      responsive layout and optional copy-command behavior.
 - [ ] macOS, Windows, and Linux ARM packages published and accepted. Not yet supported.
 
 ## Future extensions
