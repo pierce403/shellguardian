@@ -31,6 +31,33 @@ menu. The launcher uses `APPIMAGE_EXTRACT_AND_RUN=1`, avoiding a FUSE requiremen
 Override paths with `SHELLGUARDIAN_INSTALL_DIR`, `SHELLGUARDIAN_BIN_DIR`, and
 `XDG_DATA_HOME`; pass `--no-desktop` to skip menu integration.
 
+## Ubuntu launcher and dock icon
+
+The installer adds ShellGuardian to Show Apps with its green shield/terminal icon.
+Open it there, then right-click its Ubuntu dock icon and choose **Pin to Dash**
+(**Add to Favorites** on some Ubuntu versions). The application does not change
+your favorites automatically.
+
+The desktop entry is `applications/bot.recurse.shellguardian.desktop` under your
+user data directory. Its matching GTK application ID lets GNOME associate the
+window with the launcher on Wayland; `StartupWMClass=shellguardian` supplies the
+X11 match. The scalable icon lives at
+`icons/hicolor/scalable/apps/bot.recurse.shellguardian.svg` in that same data
+directory. These paths remain stable when an update replaces the AppImage.
+
+The first launch after upgrading an older installation repairs its original,
+unchanged installer-created desktop entry and adds the icon. Customized entries,
+launchers, and icons are preserved. Installations made with `--no-desktop` remain
+without a menu entry; rerun the installer without that flag to add one. Re-running
+the installer also refreshes the menu entry and icon without changing your pins.
+
+The source artwork is `public/mark.svg`; Tauri's generated PNG/ICO/ICNS assets in
+`src-tauri/icons` use the same mark. Regenerate those assets with
+`npm run tauri -- icon public/mark.svg` after changing the artwork. Keep the
+installer's embedded SVG identical to the source; installer checks enforce this.
+
+## Download verification
+
 The bootstrap script and checksum manifest are trusted through GitHub HTTPS.
 SHA256 detects corrupted downloads, not a malicious publisher who can replace
 both the artifact and its checksum. Inspect the script first if this bootstrap

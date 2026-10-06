@@ -30,7 +30,11 @@ done
 install_dir="${SHELLGUARDIAN_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/shellguardian}"
 bin_dir="${SHELLGUARDIAN_BIN_DIR:-$HOME/.local/bin}"
 desktop_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-for directory in "$install_dir" "$bin_dir" "$desktop_dir"; do
+icon_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+icon_dir="$icon_root/scalable/apps"
+desktop_file="$desktop_dir/bot.recurse.shellguardian.desktop"
+icon_file="$icon_dir/bot.recurse.shellguardian.svg"
+for directory in "$install_dir" "$bin_dir" "$desktop_dir" "$icon_dir"; do
   [[ "$directory" =~ ^/[A-Za-z0-9_./\ -]+$ ]] && [ "$directory" != / ] \
     || fail 'Install paths must be absolute and use letters, digits, spaces, ., /, _, or -.'
 done
@@ -70,6 +74,9 @@ if [ -e "$appimage" ] && [ ! -f "$marker" ]; then fail 'This path contains an un
 if [ -e "$launcher" ] && ! head -n 3 "$launcher" | grep -Fq '# ShellGuardian managed launcher'; then
   fail 'A different shellguardian launcher already exists. Choose another bin directory.'
 fi
+if [ "$desktop" = 1 ]; then
+  [ ! -L "$desktop_file" ] && [ ! -L "$icon_file" ] || fail 'Refusing to replace a symbolic desktop entry or icon link.'
+fi
 mkdir -p -- "$install_dir" "$bin_dir"
 # Stage on the same filesystem so replacement is atomic. Retain one rollback copy.
 staged=$(mktemp "$install_dir/.ShellGuardian.XXXXXXXX")
@@ -85,10 +92,19 @@ printf '%s\n' "$version" > "$marker"
 } > "$task_tmp/launcher"
 install -m 755 "$task_tmp/launcher" "$launcher"
 if [ "$desktop" = 1 ]; then
-  mkdir -p -- "$desktop_dir"
-  printf '[Desktop Entry]\nType=Application\nName=ShellGuardian\nComment=Control room for NVIDIA OpenShell agents\nExec="%s"\nTerminal=false\nCategories=Development;Utility;\n' \
+  mkdir -p -- "$desktop_dir" "$icon_dir"
+  # Keep this self-contained installer asset identical to public/mark.svg.
+  printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="120" fill="#182c2b"/><path d="M256 86 386 134v116c0 90-56 149-130 178-74-29-130-88-130-178V134Z" fill="#cceca8"/><path d="m205 205 49 48-49 48m68 0h54" fill="none" stroke="#182c2b" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/></svg>' > "$task_tmp/shellguardian.svg"
+  install -m 644 "$task_tmp/shellguardian.svg" "$icon_file"
+  printf '[Desktop Entry]\nType=Application\nName=ShellGuardian\nComment=Control room for NVIDIA OpenShell agents\nExec="%s"\nIcon=bot.recurse.shellguardian\nStartupWMClass=shellguardian\nStartupNotify=true\nTerminal=false\nCategories=Development;Utility;\n' \
     "$launcher" > "$task_tmp/shellguardian.desktop"
-  install -m 644 "$task_tmp/shellguardian.desktop" "$desktop_dir/bot.recurse.shellguardian.desktop"
+  install -m 644 "$task_tmp/shellguardian.desktop" "$desktop_file"
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f "$icon_root" >/dev/null 2>&1 || true
+  fi
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+  fi
 fi
 printf '\nInstalled %s\nLaunch: %s\n' "$appimage" "$launcher"
 case ":${PATH:-}:" in *":$bin_dir:"*) ;; *) printf 'Add %s to your PATH to use the shellguardian command.\n' "$bin_dir" ;; esac

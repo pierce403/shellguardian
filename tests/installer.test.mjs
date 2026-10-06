@@ -81,9 +81,26 @@ try {
     const wrapper = readFileSync(join(result.folder, 'bin/shellguardian'), 'utf8');
     assert.ok(wrapper.includes('APPIMAGE_EXTRACT_AND_RUN=1'));
     assert.ok(wrapper.includes('# ShellGuardian managed launcher'));
-    assert.ok(
-      existsSync(join(result.folder, 'data/applications/bot.recurse.shellguardian.desktop')),
+    const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+    const desktopPath = join(result.folder, `data/applications/${config.identifier}.desktop`);
+    const desktop = readFileSync(desktopPath, 'utf8');
+    assert.equal(config.app.enableGTKAppId, true);
+    assert.ok(desktop.includes(`Icon=${config.identifier}\n`));
+    assert.ok(desktop.includes('StartupWMClass=shellguardian\n'));
+    assert.ok(desktop.includes('StartupNotify=true\n'));
+    assert.ok(desktop.includes(`Exec="${join(result.folder, 'bin/shellguardian')}"\n`));
+    const iconPath = join(
+      result.folder,
+      `data/icons/hicolor/scalable/apps/${config.identifier}.svg`,
     );
+    assert.equal(readFileSync(iconPath, 'utf8'), readFileSync('public/mark.svg', 'utf8'));
+    assert.equal(statSync(iconPath).mode & 0o777, 0o644);
+    const desktopValidation = spawnSync('desktop-file-validate', [desktopPath], {
+      encoding: 'utf8',
+    });
+    if (desktopValidation.error?.code !== 'ENOENT') {
+      assert.equal(desktopValidation.status, 0, desktopValidation.stderr);
+    }
     assert.ok(result.stdout.includes('ON by default'));
     assert.ok(!existsSync(join(result.folder, 'data/preferences.json')));
   });
@@ -93,6 +110,13 @@ try {
     assert.equal(
       readFileSync(join(result.folder, 'app/ShellGuardian.previous.AppImage'), 'utf8'),
       image,
+    );
+    assert.equal(
+      readFileSync(
+        join(result.folder, 'data/icons/hicolor/scalable/apps/bot.recurse.shellguardian.svg'),
+        'utf8',
+      ),
+      readFileSync('public/mark.svg', 'utf8'),
     );
   });
   check('tampered bytes leave existing installation untouched', () => {
@@ -140,6 +164,25 @@ try {
     assert.equal(result.status, 0, result.stderr);
     execFileSync('bash', ['-n', join(result.folder, 'bin/shellguardian')]);
     assert.ok(!existsSync(join(result.folder, 'data/applications')));
+    assert.ok(!existsSync(join(result.folder, 'data/icons')));
+  });
+  check('desktop and icon symlinks are refused before replacing any installation', () => {
+    for (const relative of [
+      'data/applications/bot.recurse.shellguardian.desktop',
+      'data/icons/hicolor/scalable/apps/bot.recurse.shellguardian.svg',
+    ]) {
+      const folder = join(taskDir, relative.includes('/icons/') ? 'icon-link' : 'desktop-link');
+      const target = join(folder, relative);
+      mkdirSync(join(target, '..'), { recursive: true });
+      const original = join(folder, 'user-file');
+      writeFileSync(original, 'keep this file');
+      symlinkSync(original, target);
+      const result = run(relative.includes('/icons/') ? 'icon-link' : 'desktop-link');
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /symbolic desktop entry or icon link/);
+      assert.equal(readFileSync(original, 'utf8'), 'keep this file');
+      assert.ok(!existsSync(result.imagePath));
+    }
   });
   check('symbolic links and unmanaged executables are never overwritten', () => {
     const path = join(taskDir, 'unmanaged/app');
