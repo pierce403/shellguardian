@@ -91,3 +91,10 @@ No existing sandboxes, providers, keys, policies, gateway selections, or runtime
 services were changed. The current active workspace was empty. Features remain
 `in-progress`; passing a preview or native read-only smoke test does not establish
 production readiness for all controls.
+
+### Development watcher cleanup
+
+The preview server's logs showed page reloads for generated Tauri HTML under
+`target/debug/build/.../tauri-codegen-assets`. Vite now excludes native source,
+Rust build output, and development caches from its watcher. This is independent
+of the packaged frontend and prevents build artifacts from triggering UI reloads.

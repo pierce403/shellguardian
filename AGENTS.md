@@ -67,3 +67,6 @@ behavior. The guide at https://recurse.bot informed these conventions.
   smoke test. Keep the distinction between contracts, preview, and live behavior.
 - Rust dependencies require 1.90 or newer; verification used 1.97.0. npm uses
   repository lockfiles and an ignored local dependency cache in this environment.
+- Vite must ignore `src-tauri`, `target`, and `.cache` in its watcher. Native code
+  generation created HTML under `target` and caused unrelated frontend reloads
+  before those build/cache directories were excluded.
