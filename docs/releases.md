@@ -39,17 +39,23 @@ Open it there, then right-click its Ubuntu dock icon and choose **Pin to Dash**
 your favorites automatically.
 
 The desktop entry is `applications/bot.recurse.shellguardian.desktop` under your
-user data directory. Its matching GTK application ID lets GNOME associate the
-window with the launcher on Wayland; `StartupWMClass=shellguardian` supplies the
-X11 match. The scalable icon lives at
+user data directory. Its GTK application ID, Wayland app ID, and
+`StartupWMClass=bot.recurse.shellguardian` match that filename. GTK 3 takes its
+Wayland ID from the GLib program name, which the app sets before creating windows.
+The desktop entry uses an absolute icon path to avoid stale theme-cache lookups.
+The scalable icon lives at
 `icons/hicolor/scalable/apps/bot.recurse.shellguardian.svg` in that same data
 directory. These paths remain stable when an update replaces the AppImage.
 
-The first launch after upgrading an older installation repairs its original,
-unchanged installer-created desktop entry and adds the icon. Customized entries,
+Before opening its window, the first launch after upgrading an older installation
+repairs its unchanged installer-created desktop entry and adds the icon. A hidden
+`shellguardian.desktop` compatibility entry supports the old Wayland ID without
+adding another app-menu item. Customized entries,
 launchers, and icons are preserved. Installations made with `--no-desktop` remain
 without a menu entry; rerun the installer without that flag to add one. Re-running
 the installer also refreshes the menu entry and icon without changing your pins.
+If an already-open window still shows a generic gear after repair, close and reopen
+ShellGuardian so GNOME can associate the new window with the corrected launcher.
 
 The source artwork is `public/mark.svg`; Tauri's generated PNG/ICO/ICNS assets in
 `src-tauri/icons` use the same mark. Regenerate those assets with

@@ -3543,6 +3543,7 @@ dependencies = [
 name = "shellguardian"
 version = "0.3.1"
 dependencies = [
+ "glib",
  "openshell-bridge",
  "serde",
  "serde_json",

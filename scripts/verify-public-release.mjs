@@ -117,8 +117,12 @@ assert.equal(
 const desktopPath = join(dataDirectory, 'applications/bot.recurse.shellguardian.desktop');
 const desktop = await readFile(desktopPath, 'utf8');
 assert.ok(desktop.includes(`Exec="${join(binDirectory, 'shellguardian')}"\n`));
-assert.ok(desktop.includes('Icon=bot.recurse.shellguardian\n'));
-assert.ok(desktop.includes('StartupWMClass=shellguardian\n'));
+assert.ok(
+  desktop.includes(
+    `Icon=${join(dataDirectory, 'icons/hicolor/scalable/apps/bot.recurse.shellguardian.svg')}\n`,
+  ),
+);
+assert.ok(desktop.includes('StartupWMClass=bot.recurse.shellguardian\n'));
 execFileSync('desktop-file-validate', [desktopPath], { stdio: 'pipe' });
 const icon = await readFile(
   join(dataDirectory, 'icons/hicolor/scalable/apps/bot.recurse.shellguardian.svg'),

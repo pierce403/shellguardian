@@ -58,7 +58,11 @@ function run(name, extra = {}, args = []) {
     XDG_DATA_HOME: join(folder, 'data'),
     ...extra,
   };
-  const result = spawnSync('bash', [installer, ...args], { env, encoding: 'utf8' });
+  const result = spawnSync('bash', [installer, ...args], {
+    env,
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
   return {
     ...result,
     folder,
@@ -85,14 +89,21 @@ try {
     const desktopPath = join(result.folder, `data/applications/${config.identifier}.desktop`);
     const desktop = readFileSync(desktopPath, 'utf8');
     assert.equal(config.app.enableGTKAppId, true);
-    assert.ok(desktop.includes(`Icon=${config.identifier}\n`));
-    assert.ok(desktop.includes('StartupWMClass=shellguardian\n'));
+    assert.ok(desktop.includes(`StartupWMClass=${config.identifier}\n`));
     assert.ok(desktop.includes('StartupNotify=true\n'));
     assert.ok(desktop.includes(`Exec="${join(result.folder, 'bin/shellguardian')}"\n`));
     const iconPath = join(
       result.folder,
       `data/icons/hicolor/scalable/apps/${config.identifier}.svg`,
     );
+    assert.ok(desktop.includes(`Icon=${iconPath}\n`));
+    const compatibility = readFileSync(
+      join(result.folder, 'data/applications/shellguardian.desktop'),
+      'utf8',
+    );
+    assert.ok(compatibility.includes(`Icon=${iconPath}\n`));
+    assert.ok(compatibility.includes('StartupWMClass=shellguardian\n'));
+    assert.ok(compatibility.includes('NoDisplay=true\nX-ShellGuardian-Compatibility=true\n'));
     assert.equal(readFileSync(iconPath, 'utf8'), readFileSync('public/mark.svg', 'utf8'));
     assert.equal(statSync(iconPath).mode & 0o777, 0o644);
     const desktopValidation = spawnSync('desktop-file-validate', [desktopPath], {
@@ -195,6 +206,37 @@ try {
     symlinkSync(join(path, 'ShellGuardian.AppImage'), join(linkPath, 'ShellGuardian.AppImage'));
     assert.notEqual(run('symlink').status, 0);
     assert.equal(readFileSync(join(path, 'ShellGuardian.AppImage'), 'utf8'), 'not ours');
+  });
+  check('custom and symlinked compatibility entries are preserved', () => {
+    for (const linked of [false, true]) {
+      const name = linked ? 'compatibility-link' : 'compatibility-custom';
+      const folder = join(taskDir, name);
+      const entry = join(folder, 'data/applications/shellguardian.desktop');
+      mkdirSync(join(entry, '..'), { recursive: true });
+      if (linked) {
+        const original = join(folder, 'custom.desktop');
+        writeFileSync(original, 'custom launcher');
+        symlinkSync(original, entry);
+      } else writeFileSync(entry, 'custom launcher');
+      const result = run(name);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(entry, 'utf8'), 'custom launcher');
+    }
+  });
+  check('nonregular compatibility entries are skipped without blocking', () => {
+    for (const kind of ['fifo', 'directory']) {
+      const name = `compatibility-${kind}`;
+      const entry = join(taskDir, name, 'data/applications/shellguardian.desktop');
+      mkdirSync(join(entry, '..'), { recursive: true });
+      if (kind === 'fifo') execFileSync('mkfifo', [entry]);
+      else mkdirSync(entry);
+      const result = run(name);
+      assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+      assert.equal(
+        kind === 'fifo' ? statSync(entry).isFIFO() : statSync(entry).isDirectory(),
+        true,
+      );
+    }
   });
   console.log(`${passed} installer checks passed.`);
 } finally {

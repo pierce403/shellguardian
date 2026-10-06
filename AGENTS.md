@@ -31,9 +31,12 @@ focused milestones. Do not disturb existing agents to test the application.
   operations; normal disconnect waits, while app exit kills and reaps owned SSH
   children after mutation/setup guards permit exit. Never persist SSH sessions.
 - Follow OS appearance using native theme events with media-query fallback; do
-  not add a saved theme preference. Keep Ubuntu desktop ID and GTK app ID aligned.
-  Legacy launcher repair may modify only exact installer-owned entries; preserve
+  not add a saved theme preference. Keep Ubuntu desktop ID, GTK application ID,
+  and GLib program name aligned: GTK 3 uses the latter for Wayland's app ID.
+  Set the program name and repair managed launchers before creating any window.
+  Launcher repair may modify only exact installer-owned entries; preserve
   customizations and `--no-desktop` installs, and never change GNOME favorites.
+  Keep the old Wayland ID's compatibility launcher hidden from application menus.
 - Keep credentials out of the webview, logs, errors, fixtures, and repository.
   Read provider summaries and attachment metadata only, never credential values.
 - Display unavailable measurements as unavailable, never as zero. Sandbox state

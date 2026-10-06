@@ -384,3 +384,43 @@ the v0.3.1 release. The live browser renders v0.3.1, the new feature/release cop
 and 85.3 MB download information without horizontal overflow. Its only script is
 the local copy helper. The temporary preview server and native test processes are
 stopped. Cloudflare received only the static project page, never a gateway or app.
+
+## 2026-10-06: actual Ubuntu Wayland icon failure
+
+The user's screenshot showed a generic gear with the installed v0.3.1 app running
+in their real Wayland session. The installed AppImage matched the published hash;
+the desktop entry and SVG were present, and GTK could resolve and render the SVG.
+The earlier X11/GTK metadata tests did not establish the native Wayland identity
+or prove the dock's rendered icon. Keep the dock acceptance checkbox open.
+
+A private-bus Wayland trace showed v0.3.1 announcing `shellguardian` through
+`xdg_toplevel.set_app_id`, separately from its canonical GtkApplication ID
+`bot.recurse.shellguardian`. GTK 3 uses the GLib program name for that protocol
+field. GNOME has fallback matches, so the mismatch is not proof of the sole cause
+of the generic icon; relying on those fallbacks left an avoidable integration gap.
+Also found that Tauri creates configured windows before invoking the setup hook,
+where the previous launcher repair had run.
+
+Set the GLib program name to the canonical desktop ID before GTK initialization
+and moved exact-managed-launcher repair ahead of window creation. Installer and
+native migration now use an absolute SVG path, a canonical X11 match, and a hidden
+legacy `shellguardian.desktop` alias. Existing custom aliases and symlinks remain
+untouched. Independent review caught a possible installer hang when the alias was
+a FIFO; comparisons now require a regular file, covered by FIFO/directory tests.
+
+Applied the narrow local launcher repair to the user's existing install, retaining
+the old v0.3.1 X11 class while that binary remains installed. Backed up the original
+entry under `.cache/ubuntu-launcher-before-icon-fix.desktop`. The compatibility ID
+now resolves through Gio to the real SVG, loads at 64x64, and is hidden from Show
+Apps. Refreshed the per-user desktop database. Did not close the user's window,
+change favorites, or interrupt their SSH tunnels. A close/reopen and rendered dock
+confirmation remain with the user; Shell introspection denied access, and no
+unsafe mode or introspection workaround was enabled.
+
+The fixed debug build announced `bot.recurse.shellguardian` through both Wayland
+and GTK on the actual display. Added a bounded reusable identity probe with
+private D-Bus/XDG state and owned-process cleanup. The separate native X11 check
+reported WM_CLASS `bot.recurse.shellguardian`, `Bot.recurse.shellguardian` and
+matching GTK ID; SSH/mTLS lifecycle, current dark theme, unchanged OpenShell
+selection, and empty browser storage also passed. Neither metadata check claims
+visual dock acceptance. Signed patch-release verification follows below.

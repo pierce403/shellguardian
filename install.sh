@@ -23,7 +23,7 @@ done
 [ "$(id -u)" != 0 ] || fail 'Run as your ordinary user, not root. No sudo is needed.'
 [ "$(uname -s)" = Linux ] || fail 'This release supports Linux only. See the website for platform status.'
 case "$(uname -m)" in x86_64|amd64) ;; *) fail 'This release requires Linux x86_64.' ;; esac
-for dependency in curl sha256sum mktemp install; do
+for dependency in curl sha256sum mktemp install cmp; do
   command -v "$dependency" >/dev/null 2>&1 || fail "Install $dependency first."
 done
 [ -n "${HOME:-}" ] || fail 'Your home directory is not set.'
@@ -33,6 +33,7 @@ desktop_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 icon_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
 icon_dir="$icon_root/scalable/apps"
 desktop_file="$desktop_dir/bot.recurse.shellguardian.desktop"
+compatibility_file="$desktop_dir/shellguardian.desktop"
 icon_file="$icon_dir/bot.recurse.shellguardian.svg"
 for directory in "$install_dir" "$bin_dir" "$desktop_dir" "$icon_dir"; do
   [[ "$directory" =~ ^/[A-Za-z0-9_./\ -]+$ ]] && [ "$directory" != / ] \
@@ -96,9 +97,19 @@ if [ "$desktop" = 1 ]; then
   # Keep this self-contained installer asset identical to public/mark.svg.
   printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="120" fill="#182c2b"/><path d="M256 86 386 134v116c0 90-56 149-130 178-74-29-130-88-130-178V134Z" fill="#cceca8"/><path d="m205 205 49 48-49 48m68 0h54" fill="none" stroke="#182c2b" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/></svg>' > "$task_tmp/shellguardian.svg"
   install -m 644 "$task_tmp/shellguardian.svg" "$icon_file"
-  printf '[Desktop Entry]\nType=Application\nName=ShellGuardian\nComment=Control room for NVIDIA OpenShell agents\nExec="%s"\nIcon=bot.recurse.shellguardian\nStartupWMClass=shellguardian\nStartupNotify=true\nTerminal=false\nCategories=Development;Utility;\n' \
-    "$launcher" > "$task_tmp/shellguardian.desktop"
+  printf '[Desktop Entry]\nType=Application\nName=ShellGuardian\nComment=Control room for NVIDIA OpenShell agents\nExec="%s"\nIcon=%s\nStartupWMClass=bot.recurse.shellguardian\nStartupNotify=true\nTerminal=false\nCategories=Development;Utility;\n' \
+    "$launcher" "$icon_file" > "$task_tmp/shellguardian.desktop"
   install -m 644 "$task_tmp/shellguardian.desktop" "$desktop_file"
+  # Older native Wayland clients announced the binary name as their app ID.
+  # Keep an exact-match hidden entry, without adding a second app-menu item.
+  compatibility_entry() {
+    printf '[Desktop Entry]\nType=Application\nName=ShellGuardian\nComment=Control room for NVIDIA OpenShell agents\nExec="%s"\nIcon=%s\nStartupWMClass=shellguardian\nStartupNotify=true\nNoDisplay=true\nX-ShellGuardian-Compatibility=true\nTerminal=false\nCategories=Development;Utility;\n' "$launcher" "$1"
+  }
+  compatibility_entry "$icon_file" > "$task_tmp/compatibility.desktop"
+  compatibility_entry bot.recurse.shellguardian > "$task_tmp/compatibility-named.desktop"
+  if [ ! -L "$compatibility_file" ] && { [ ! -e "$compatibility_file" ] || { [ -f "$compatibility_file" ] && { cmp -s "$compatibility_file" "$task_tmp/compatibility.desktop" || cmp -s "$compatibility_file" "$task_tmp/compatibility-named.desktop"; }; }; }; then
+    install -m 644 "$task_tmp/compatibility.desktop" "$compatibility_file"
+  fi
   if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -q -t -f "$icon_root" >/dev/null 2>&1 || true
   fi

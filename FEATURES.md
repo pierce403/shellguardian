@@ -21,7 +21,7 @@ Acceptance checkboxes require evidence, not assumptions.
   - [x] Command contract tests cover scoping, pagination, and failures.
   - [x] Native application connects to a registered gateway.
   - Evidence: live `inspect` and native WebKit smoke tests; published Linux x86_64
-    AppImage accepted on 2026-10-06. Current suites pass 38 bridge and 14 native tests.
+    AppImage accepted on 2026-10-06. Current suites pass 38 bridge and 18 native tests.
   - Remaining: physical remote host acceptance. Linux preview packaging is published;
     other platforms remain unsupported.
 
@@ -61,8 +61,10 @@ Acceptance checkboxes require evidence, not assumptions.
     and use the live OS media query when native theme information is unavailable.
   - Save no theme preference. Cover forms, dialogs, status, and preview surfaces
     with the same theme tokens.
-  - Install the scalable shield/terminal icon with a stable desktop/GTK app ID
-    and X11 window-class match. Do not modify the user's dock favorites.
+  - Install the scalable shield/terminal icon with matching desktop, GTK, Wayland,
+    and X11 identities. Repair managed launchers before mapping the first window.
+    Keep the old Wayland ID's compatibility entry hidden from app menus. Do not
+    modify the user's dock favorites.
   - AppImage updates retain launcher paths and repair untouched legacy installer
     entries. Preserve custom entries/icons and absent `--no-desktop` installations.
 - **Dependencies**: Tauri theme events, freedesktop desktop entry, per-user installer.
@@ -71,10 +73,14 @@ Acceptance checkboxes require evidence, not assumptions.
         precedence, fallback, delayed-read races, and readable text contrast.
   - [x] Native Tauri/WebKit detects this Ubuntu session's dark OS appearance and
         applies matching theme tokens. Physical OS-settings changes remain untested.
-  - [x] Ten installer checks include valid desktop metadata and matching icon bytes.
-  - [x] Six native unit tests cover safe, one-time legacy launcher repair.
+  - [x] Twelve installer checks include valid desktop metadata, matching icon bytes,
+        and preservation of custom, symlinked, and nonregular compatibility entries.
+  - [x] Ten native unit tests cover safe, idempotent launcher repair.
   - [x] Published v0.3.1 installer and native AppImage verify the icon, desktop entry,
         X11 WM_CLASS, and GTK application ID. No user favorites were changed.
+        These checks missed its separate Wayland ID; the user reported a generic icon.
+  - [x] Fixed native debug build announces `bot.recurse.shellguardian` through both
+        Wayland and GTK; the X11 class matches. Current installed launchers repaired.
   - [ ] Live Ubuntu dock pinning/grouping verified with the packaged application.
 
 ## Agent supervision

@@ -170,5 +170,33 @@ theme checks above. Its installed launcher/icon passed desktop entry validation,
 the live X11 WM_CLASS was `shellguardian`, `Shellguardian`, and
 `_GTK_APPLICATION_ID` was `bot.recurse.shellguardian`, matching the stable desktop
 ID. Native AppImage update support was detected and the installed bytes were
-unchanged after acceptance. These checks establish the installed icon and window
-identity; actually adding the app to a user's GNOME dock remains a user action.
+unchanged after acceptance. These checks establish installed artwork and X11/GTK
+metadata, not the separate Wayland app ID or the rendered GNOME dock icon. The user
+subsequently reported a generic gear on Wayland despite those checks passing.
+Actually adding the app to a user's GNOME dock remains a user action.
+
+## Native Wayland identity acceptance
+
+GTK 3 uses the GLib program name, not GtkApplication's ID, for `xdg_toplevel.app_id`.
+The app now sets both identities to the installed desktop filename stem,
+`bot.recurse.shellguardian`, before any window is created. Launcher migration also
+runs before Tauri creates configured windows, not inside its later setup hook.
+
+From a real Wayland session with `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` available:
+
+```bash
+node scripts/native-wayland-identity.mjs target/debug/shellguardian
+```
+
+The test briefly opens its own window on that display, using a private D-Bus session
+and temporary XDG directories. Automatic updates are disabled only in that fixture.
+It captures only Wayland/GTK identity metadata, times out after ten seconds, and
+cleans up its own process group and temporary files. It does not close the user's
+app or change their preferences, favorites, or OpenShell state. Pass an AppImage
+path to check the packaged build through the same path.
+
+On 2026-10-06, the fixed debug build reported `bot.recurse.shellguardian` for both
+identities. The native SSH harness with `SHELLGUARDIAN_VERIFY_DESKTOP_IDENTITY=1`
+also verified the corresponding X11 class and GTK application ID. This closes the
+protocol-level coverage gap; visual dock confirmation still requires the user's
+actual GNOME session, not an Xvfb screenshot or metadata-only assertion.

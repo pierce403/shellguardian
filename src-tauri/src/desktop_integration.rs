@@ -1,4 +1,4 @@
-//! Repair the exact desktop entry emitted by the first Linux installer.
+//! Repair exact desktop entries emitted by the Linux installer.
 //!
 //! The application never creates a menu entry for a `--no-desktop` installation,
 //! changes GNOME favorites, or replaces a customized launcher/icon. The stable
@@ -9,11 +9,12 @@ use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const APP_ID: &str = "bot.recurse.shellguardian";
+/// Shared desktop filename, GTK application ID, and native window identity.
+pub const APP_ID: &str = "bot.recurse.shellguardian";
 const ICON: &[u8] = include_bytes!("../../public/mark.svg");
 const LAUNCHER_HEADER: &str = "#!/usr/bin/env bash\n# ShellGuardian managed launcher\n# Extraction avoids requiring FUSE; OpenShell stays untouched.\nexport APPIMAGE_EXTRACT_AND_RUN=1\n";
 
-/// Add an icon to an untouched legacy per-user installation after a self-update.
+/// Align untouched per-user desktop integration after a self-update.
 ///
 /// Development binaries and AppImages launched outside the managed install path
 /// do nothing. Returns whether the desktop entry was repaired; a repair failure
@@ -71,9 +72,17 @@ fn repair_at(data_home: &Path, appimage: &Path) -> io::Result<bool> {
     else {
         return Ok(false);
     };
+    let icon_path = data_home.join(format!("icons/hicolor/scalable/apps/{APP_ID}.svg"));
+    let absolute_icon = icon_path.to_str().unwrap();
+    let managed = desktop == legacy_desktop(&launcher)
+        || ["shellguardian", APP_ID].iter().any(|class| {
+            [APP_ID, absolute_icon]
+                .iter()
+                .any(|icon| desktop == installed_desktop(&launcher, icon, class))
+        });
     if !safe_installer_path(&launcher)
         || launcher.file_name().and_then(|name| name.to_str()) != Some("shellguardian")
-        || desktop != legacy_desktop(&launcher)
+        || !managed
     {
         return Ok(false);
     }
@@ -85,7 +94,7 @@ fn repair_at(data_home: &Path, appimage: &Path) -> io::Result<bool> {
         return Ok(false);
     }
 
-    let icon_path = data_home.join(format!("icons/hicolor/scalable/apps/{APP_ID}.svg"));
+    let mut changed = false;
     match fs::symlink_metadata(&icon_path) {
         Ok(metadata) => {
             if !metadata.is_file() || read_regular(&icon_path, 4096)?.as_deref() != Some(ICON) {
@@ -95,24 +104,67 @@ fn repair_at(data_home: &Path, appimage: &Path) -> io::Result<bool> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             fs::create_dir_all(icon_path.parent().unwrap())?;
             atomic_write(&icon_path, ICON)?;
+            changed = true;
         }
         Err(error) => return Err(error),
     }
 
-    // Use an absolute icon path for this one-time migration, so an existing
+    // Use an absolute icon path for this migration, so an existing
     // desktop icon cache cannot hide the newly installed asset until logout.
-    let repaired = desktop.replace(
-        "Terminal=false\n",
-        &format!(
-            "Icon={}\nStartupWMClass=shellguardian\nStartupNotify=true\nTerminal=false\n",
-            icon_path.to_string_lossy()
-        ),
-    );
+    let repaired = installed_desktop(&launcher, absolute_icon, APP_ID);
     // Preserve an entry edited while the icon was being installed.
     if read_regular(&desktop_path, 16_384)?.as_deref() != Some(bytes.as_slice()) {
         return Ok(false);
     }
-    atomic_write(&desktop_path, repaired.as_bytes())?;
+    if desktop != repaired {
+        atomic_write(&desktop_path, repaired.as_bytes())?;
+        changed = true;
+    }
+    // Older already-running clients announce "shellguardian" on Wayland.
+    // Keep their hidden compatibility identity without adding a second menu item.
+    changed |= repair_compatibility_launcher(data_home, &launcher, absolute_icon)?;
+    Ok(changed)
+}
+
+fn repair_compatibility_launcher(
+    data_home: &Path,
+    launcher: &Path,
+    absolute_icon: &str,
+) -> io::Result<bool> {
+    let path = data_home.join("applications/shellguardian.desktop");
+    let expected = compatibility_desktop(launcher, absolute_icon);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if !metadata.is_file() {
+                return Ok(false);
+            }
+            let Some(bytes) = read_regular(&path, 16_384)? else {
+                return Ok(false);
+            };
+            if bytes == expected.as_bytes() {
+                return Ok(false);
+            }
+            if bytes != compatibility_desktop(launcher, APP_ID).as_bytes() {
+                return Ok(false);
+            }
+            // Recheck the owned template before updating an existing alias.
+            if read_regular(&path, 16_384)?.as_deref() != Some(bytes.as_slice()) {
+                return Ok(false);
+            }
+            atomic_write(&path, expected.as_bytes())?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let temporary = temporary_file(&path, expected.as_bytes())?;
+            match temporary.persist_noclobber(&path) {
+                Ok(_) => {}
+                Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
+                    return Ok(false)
+                }
+                Err(error) => return Err(error.error),
+            }
+        }
+        Err(error) => return Err(error),
+    }
     Ok(true)
 }
 
@@ -144,13 +196,18 @@ fn read_regular(path: &Path, max_bytes: u64) -> io::Result<Option<Vec<u8>>> {
     }
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+fn temporary_file(path: &Path, bytes: &[u8]) -> io::Result<tempfile::NamedTempFile> {
     let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
     temporary
         .as_file()
         .set_permissions(fs::Permissions::from_mode(0o644))?;
     temporary.write_all(bytes)?;
     temporary.as_file().sync_all()?;
+    Ok(temporary)
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let temporary = temporary_file(path, bytes)?;
     temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
 }
@@ -159,6 +216,20 @@ fn legacy_desktop(launcher: &Path) -> String {
     format!(
         "[Desktop Entry]\nType=Application\nName=ShellGuardian\nComment=Control room for NVIDIA OpenShell agents\nExec=\"{}\"\nTerminal=false\nCategories=Development;Utility;\n",
         launcher.display()
+    )
+}
+
+fn installed_desktop(launcher: &Path, icon: &str, class: &str) -> String {
+    legacy_desktop(launcher).replace(
+        "Terminal=false\n",
+        &format!("Icon={icon}\nStartupWMClass={class}\nStartupNotify=true\nTerminal=false\n"),
+    )
+}
+
+fn compatibility_desktop(launcher: &Path, icon: &str) -> String {
+    installed_desktop(launcher, icon, "shellguardian").replace(
+        "Terminal=false\n",
+        "NoDisplay=true\nX-ShellGuardian-Compatibility=true\nTerminal=false\n",
     )
 }
 
@@ -220,9 +291,13 @@ mod tests {
         assert!(install.repair());
         let desktop = fs::read_to_string(&install.desktop).unwrap();
         assert!(desktop.contains(&format!("Icon={}\n", install.icon.display())));
-        assert!(desktop.contains("StartupWMClass=shellguardian\nStartupNotify=true\n"));
+        assert!(desktop.contains(&format!("StartupWMClass={APP_ID}\nStartupNotify=true\n")));
         assert!(desktop.contains(&format!("Exec=\"{}\"\n", install.launcher.display())));
         assert_eq!(fs::read(&install.icon).unwrap(), ICON);
+        assert_eq!(
+            fs::read_to_string(install.data.join("applications/shellguardian.desktop")).unwrap(),
+            compatibility_desktop(&install.launcher, install.icon.to_str().unwrap())
+        );
         assert_eq!(
             fs::metadata(&install.icon).unwrap().permissions().mode() & 0o777,
             0o644
@@ -237,11 +312,109 @@ mod tests {
         fs::remove_file(&install.desktop).unwrap();
         assert!(!install.repair());
         assert!(!install.icon.exists());
+        assert!(!install
+            .data
+            .join("applications/shellguardian.desktop")
+            .exists());
         let custom = format!("{}X-Custom=true\n", legacy_desktop(&install.launcher));
         fs::write(&install.desktop, &custom).unwrap();
         assert!(!install.repair());
         assert_eq!(fs::read_to_string(&install.desktop).unwrap(), custom);
         assert!(!install.icon.exists());
+    }
+
+    #[test]
+    fn updates_current_named_and_absolute_icon_entries_to_canonical_identity() {
+        for class in ["shellguardian", APP_ID] {
+            for named_icon in [true, false] {
+                let install = Installation::new();
+                fs::write(
+                    install
+                        .appimage
+                        .parent()
+                        .unwrap()
+                        .join(".shellguardian-install"),
+                    "0.3.1\n",
+                )
+                .unwrap();
+                let icon = if named_icon {
+                    APP_ID
+                } else {
+                    install.icon.to_str().unwrap()
+                };
+                fs::write(
+                    &install.desktop,
+                    installed_desktop(&install.launcher, icon, class),
+                )
+                .unwrap();
+                assert!(install.repair());
+                assert_eq!(
+                    fs::read_to_string(&install.desktop).unwrap(),
+                    installed_desktop(&install.launcher, install.icon.to_str().unwrap(), APP_ID)
+                );
+                assert!(!install.repair());
+            }
+        }
+    }
+
+    #[test]
+    fn customized_current_desktop_entry_is_preserved() {
+        let install = Installation::new();
+        let custom = format!(
+            "{}X-Custom=true\n",
+            installed_desktop(&install.launcher, APP_ID, "shellguardian")
+        );
+        fs::write(&install.desktop, &custom).unwrap();
+        assert!(!install.repair());
+        assert_eq!(fs::read_to_string(&install.desktop).unwrap(), custom);
+        assert!(!install
+            .data
+            .join("applications/shellguardian.desktop")
+            .exists());
+    }
+
+    #[test]
+    fn updates_only_exact_owned_compatibility_entries() {
+        let install = Installation::new();
+        let path = install.data.join("applications/shellguardian.desktop");
+        fs::write(&path, compatibility_desktop(&install.launcher, APP_ID)).unwrap();
+        assert!(install.repair());
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            compatibility_desktop(&install.launcher, install.icon.to_str().unwrap())
+        );
+        let customized = format!("{}X-Custom=true\n", fs::read_to_string(&path).unwrap());
+        fs::write(&path, &customized).unwrap();
+        assert!(!install.repair());
+        assert_eq!(fs::read_to_string(&path).unwrap(), customized);
+    }
+
+    #[test]
+    fn custom_or_symlinked_compatibility_entries_do_not_block_canonical_repair() {
+        for symbolic in [false, true] {
+            let install = Installation::new();
+            let path = install.data.join("applications/shellguardian.desktop");
+            let custom = "[Desktop Entry]\nName=My custom ShellGuardian launcher\n";
+            let saved = install.data.join("saved-compatibility.desktop");
+            if symbolic {
+                fs::write(&saved, custom).unwrap();
+                symlink(&saved, &path).unwrap();
+            } else {
+                fs::write(&path, custom).unwrap();
+            }
+            assert!(install.repair());
+            assert_eq!(fs::read_to_string(&path).unwrap(), custom);
+            assert_eq!(
+                fs::symlink_metadata(&path)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink(),
+                symbolic
+            );
+            assert!(fs::read_to_string(&install.desktop)
+                .unwrap()
+                .contains(&format!("StartupWMClass={APP_ID}\n")));
+        }
     }
 
     #[test]

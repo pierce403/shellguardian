@@ -117,6 +117,18 @@ fn open_openshell_releases(app: tauri::AppHandle) -> Result<(), Error> {
 }
 
 fn main() {
+    // GTK 3 uses the program name for Wayland's xdg_toplevel app_id, separately
+    // from GtkApplication's ID. Both must match the installed desktop filename.
+    #[cfg(target_os = "linux")]
+    glib::set_prgname(Some(desktop_integration::APP_ID));
+
+    // Tauri creates configured windows before its setup hook. Repair managed
+    // launchers first so the desktop shell sees their icon when mapping a window.
+    #[cfg(target_os = "linux")]
+    if let Err(error) = desktop_integration::repair_legacy_launcher() {
+        eprintln!("ShellGuardian launcher repair was unavailable: {error}");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -140,10 +152,6 @@ fn main() {
             ssh_connections::disconnect_ssh_gateway
         ])
         .setup(|app| {
-            #[cfg(target_os = "linux")]
-            if let Err(error) = desktop_integration::repair_legacy_launcher() {
-                eprintln!("ShellGuardian launcher repair was unavailable: {error}");
-            }
             app.manage(SshConnections::default());
             let window = app
                 .get_webview_window("main")

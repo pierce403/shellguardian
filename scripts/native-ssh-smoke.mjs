@@ -50,7 +50,7 @@ function desktopIdentity(environment) {
       encoding: 'utf8',
     });
     const classes = properties.match(/WM_CLASS\(STRING\) = "([^"]+)", "([^"]+)"/);
-    if (!classes || !classes.slice(1).includes('shellguardian')) continue;
+    if (!classes || !classes.slice(1).includes('bot.recurse.shellguardian')) continue;
     const applicationId = properties.match(/_GTK_APPLICATION_ID\([^)]*\) = "([^"]+)"/)?.[1] ?? null;
     if (applicationId) assert.equal(applicationId, 'bot.recurse.shellguardian');
     return { wmClass: classes.slice(1), gtkApplicationId: applicationId };
