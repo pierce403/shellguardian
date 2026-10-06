@@ -1,10 +1,12 @@
 export interface Scope {
   gateway: string;
   workspace: string;
+  connectionId?: string | null;
 }
 export interface Selection {
   gateway: string | null;
   workspace: string;
+  connectionId?: string | null;
 }
 export interface Gateway {
   name: string;
@@ -83,5 +85,18 @@ export interface AppUpdateStatus {
   supported: boolean;
   phase: string;
   latestVersion: string | null;
+  error: string | null;
+}
+
+export interface SshConnectRequest {
+  gateway: string;
+  destination: string;
+  remotePort: number;
+  sshPort: number | null;
+}
+export interface SshConnection extends SshConnectRequest {
+  id: string;
+  localPort: number;
+  status: 'connected' | 'disconnected';
   error: string | null;
 }

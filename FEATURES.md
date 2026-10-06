@@ -20,8 +20,60 @@ Acceptance checkboxes require evidence, not assumptions.
   - [x] Live read-only probe matches installed CLI and gateway output.
   - [x] Command contract tests cover scoping, pagination, and failures.
   - [x] Native application connects to a registered gateway.
-  - Evidence: 25 Rust tests, live `inspect` probe, and native WebKit smoke test on 2026-10-05.
-  - Remaining: physical remote host acceptance and production release packaging.
+  - Evidence: live `inspect` and native WebKit smoke tests; published Linux x86_64
+    AppImage accepted on 2026-10-06. Current suites pass 38 bridge and 14 native tests.
+  - Remaining: physical remote host acceptance. Linux preview packaging is published;
+    other platforms remain unsupported.
+
+## Session SSH connections
+
+- **Stability**: in-progress
+- **Description**: Reach remote OpenShell gateways through app-owned SSH tunnels.
+- **Properties**:
+  - Explicitly select an existing mTLS profile; OpenShell retains its certificates.
+    OpenSSH retains key/agent authentication, host configuration, and host trust.
+  - Default remote OpenShell port is 17670. An omitted SSH port preserves alias
+    configuration. Forward only to the remote machine's loopback interface.
+  - Only native code constructs the local HTTPS endpoint. The gateway certificate
+    must cover IP SAN 127.0.0.1; TLS verification is never disabled.
+  - Bind every scoped request to its session and profile. Dead, missing, or stale
+    IDs fail closed without direct-gateway fallback.
+  - Hold an operation lease across complete reads/mutations. Normal disconnect
+    waits for operations; app exit kills and reaps the owned SSH children.
+  - Retain session details only in memory; never write gateway configuration.
+- **Dependencies**: OpenSSH, registered OpenShell mTLS profile, native IPC.
+- **Test Criteria**:
+  - [x] Bridge tests cover command validation, profile/endpoint binding, host trust,
+        failure cleanup, stale IDs, and operation/disconnect coordination.
+  - [x] Native fixture verifies authenticated gateway reads through a loopback
+        tunnel and explicit disconnect, without agent mutations.
+  - [x] Native normal-close cleanup closes the owned tunnel listener.
+  - [x] Native tunnel death is reported disconnected; stale reads fail while the
+        original direct gateway remains healthy. Active CLI context is unchanged.
+  - [ ] Physical remote host accepted with an authorized OpenShell gateway.
+
+## Desktop appearance and Ubuntu launcher
+
+- **Stability**: in-progress
+- **Description**: Follow OS appearance and provide a recognizable, pinnable icon.
+- **Properties**:
+  - Detect light/dark appearance before rendering, follow native theme changes,
+    and use the live OS media query when native theme information is unavailable.
+  - Save no theme preference. Cover forms, dialogs, status, and preview surfaces
+    with the same theme tokens.
+  - Install the scalable shield/terminal icon with a stable desktop/GTK app ID
+    and X11 window-class match. Do not modify the user's dock favorites.
+  - AppImage updates retain launcher paths and repair untouched legacy installer
+    entries. Preserve custom entries/icons and absent `--no-desktop` installations.
+- **Dependencies**: Tauri theme events, freedesktop desktop entry, per-user installer.
+- **Test Criteria**:
+  - [x] Six browser checks cover both themes, live media changes, native event
+        precedence, fallback, delayed-read races, and readable text contrast.
+  - [x] Native Tauri/WebKit detects this Ubuntu session's dark OS appearance and
+        applies matching theme tokens. Physical OS-settings changes remain untested.
+  - [x] Ten installer checks include valid desktop metadata and matching icon bytes.
+  - [x] Six native unit tests cover safe, one-time legacy launcher repair.
+  - [ ] Live Ubuntu dock pinning/grouping verified with the packaged application.
 
 ## Agent supervision
 

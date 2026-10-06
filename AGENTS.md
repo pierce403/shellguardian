@@ -17,11 +17,23 @@ focused milestones. Do not disturb existing agents to test the application.
 - No application database, service daemon, credential vault, or browser storage.
   The only app preference on disk is `autoUpdate` in `preferences.json` under
   Tauri's app config directory. It defaults on; unreadable preferences fail closed.
-- Invoke the installed `openshell` executable from Rust with fixed argument
-  arrays. Never execute a shell or expose arbitrary command execution over IPC.
+  Gateway selection, SSH sessions, and detected appearance remain in memory.
+- Invoke installed `openshell` and `ssh` executables from Rust with validated,
+  fixed argument arrays. Never execute a shell or expose arbitrary command
+  execution over IPC.
 - Reuse OpenShell's registered gateways and authentication. Scope each request
   explicitly to its gateway and workspace. Changing the UI selection must not
   change OpenShell's active gateway.
+- SSH owns transport only: require an explicitly selected registered mTLS profile,
+  existing SSH key/agent authentication, and strict host trust. Only native code
+  creates loopback endpoint overrides. Never disable TLS or fall back to direct
+  access for a dead/stale session ID. Keep operation leases through whole bridge
+  operations; normal disconnect waits, while app exit kills and reaps owned SSH
+  children after mutation/setup guards permit exit. Never persist SSH sessions.
+- Follow OS appearance using native theme events with media-query fallback; do
+  not add a saved theme preference. Keep Ubuntu desktop ID and GTK app ID aligned.
+  Legacy launcher repair may modify only exact installer-owned entries; preserve
+  customizations and `--no-desktop` installs, and never change GNOME favorites.
 - Keep credentials out of the webview, logs, errors, fixtures, and repository.
   Read provider summaries and attachment metadata only, never credential values.
 - Display unavailable measurements as unavailable, never as zero. Sandbox state
@@ -38,7 +50,8 @@ focused milestones. Do not disturb existing agents to test the application.
 
 ## Layout
 
-- `crates/openshell-bridge`: desktop-independent CLI adapter and contract tests.
+- `crates/openshell-bridge`: desktop-independent CLI adapter, session SSH transport,
+  and contract tests.
 - `src-tauri`: native application and typed IPC commands.
 - `src`: React/TypeScript presentation and explicit sample-preview fixtures.
 - `docs`: architecture, upstream contract, and development instructions.

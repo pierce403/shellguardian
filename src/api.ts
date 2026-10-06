@@ -11,12 +11,16 @@ import type {
   Snapshot,
   UpdateInfo,
   AppUpdateStatus,
+  SshConnectRequest,
+  SshConnection,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
 export const desktopMode = isTauri();
 let previewSnapshot = structuredClone(sampleSnapshot);
 const previewDetails = new Map<string, AgentDetail>();
+let previewConnectionSequence = 0;
+let previewConnections: SshConnection[] = [];
 let sampleAppUpdate: AppUpdateStatus = {
   appVersion: version,
   enabled: true,
@@ -54,7 +58,7 @@ export async function restartForUpdate(): Promise<void> {
 }
 
 function previewKey(scope: Scope, name: string) {
-  return `${scope.gateway}/${scope.workspace}/${name}`;
+  return `${scope.connectionId ?? 'direct'}/${scope.gateway}/${scope.workspace}/${name}`;
 }
 export function errorMessage(error: unknown): string {
   if (typeof error === 'string') return error;
@@ -66,9 +70,20 @@ export function errorMessage(error: unknown): string {
 export async function getSnapshot(selection: Selection): Promise<Snapshot> {
   if (previewMode) {
     const gateway = selection.gateway ?? 'local';
+    if (
+      selection.connectionId &&
+      !previewConnections.some(
+        (connection) => connection.id === selection.connectionId && connection.gateway === gateway,
+      )
+    )
+      throw new Error('This SSH connection has ended. Connect again or choose a direct gateway.');
     return {
       ...structuredClone(previewSnapshot),
-      scope: { gateway, workspace: selection.workspace },
+      scope: {
+        gateway,
+        workspace: selection.workspace,
+        connectionId: selection.connectionId ?? null,
+      },
       observedAt: Date.now(),
     };
   }
@@ -177,4 +192,35 @@ export async function checkUpdates(): Promise<UpdateInfo> {
 export async function openReleases(): Promise<void> {
   if (desktopMode && !previewMode) return invoke('open_openshell_releases');
   window.open('https://github.com/NVIDIA/OpenShell/releases', '_blank', 'noopener,noreferrer');
+}
+
+export async function getSshConnections(): Promise<SshConnection[]> {
+  if (previewMode) return structuredClone(previewConnections);
+  if (!desktopMode) return [];
+  const connections = await invoke<SshConnection[]>('get_ssh_connections');
+  if (!Array.isArray(connections)) throw new Error('Could not read SSH connections.');
+  return connections;
+}
+
+export async function connectSsh(request: SshConnectRequest): Promise<SshConnection> {
+  if (previewMode) {
+    const connection: SshConnection = {
+      ...request,
+      id: `sample-ssh-${++previewConnectionSequence}`,
+      localPort: 40000 + previewConnectionSequence,
+      status: 'connected',
+      error: null,
+    };
+    previewConnections.push(connection);
+    return structuredClone(connection);
+  }
+  return invoke('connect_ssh_gateway', { request });
+}
+
+export async function disconnectSsh(connectionId: string): Promise<void> {
+  if (previewMode) {
+    previewConnections = previewConnections.filter((connection) => connection.id !== connectionId);
+    return;
+  }
+  return invoke('disconnect_ssh_gateway', { connectionId });
 }

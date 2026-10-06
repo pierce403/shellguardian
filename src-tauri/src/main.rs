@@ -1,10 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use openshell_bridge::ssh::SshConnections;
 use openshell_bridge::{model::*, process::ProcessRunner, Bridge, Error};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 mod app_updates;
+#[cfg(target_os = "linux")]
+mod desktop_integration;
 mod preferences;
+mod ssh_connections;
 use app_updates::AppUpdates;
 
 fn bridge() -> Bridge<ProcessRunner> {
@@ -12,41 +16,72 @@ fn bridge() -> Bridge<ProcessRunner> {
 }
 
 #[tauri::command]
-async fn get_snapshot(selection: Selection) -> Result<Snapshot, Error> {
-    bridge().snapshot(selection).await
+async fn get_snapshot(
+    connections: tauri::State<'_, SshConnections>,
+    selection: Selection,
+) -> Result<Snapshot, Error> {
+    let runner = connections
+        .runner(
+            selection.gateway.as_deref(),
+            selection.connection_id.as_deref(),
+        )
+        .await?;
+    Bridge::new(runner).snapshot(selection).await
 }
 
 #[tauri::command]
-async fn get_agent_detail(scope: Scope, name: String) -> Result<AgentDetail, Error> {
-    bridge().detail(&scope, &name).await
+async fn get_agent_detail(
+    connections: tauri::State<'_, SshConnections>,
+    scope: Scope,
+    name: String,
+) -> Result<AgentDetail, Error> {
+    let runner = connections
+        .runner(Some(&scope.gateway), scope.connection_id.as_deref())
+        .await?;
+    Bridge::new(runner).detail(&scope, &name).await
 }
 
 #[tauri::command]
-async fn get_agent_logs(scope: Scope, name: String) -> Result<String, Error> {
-    bridge().logs(&scope, &name).await
+async fn get_agent_logs(
+    connections: tauri::State<'_, SshConnections>,
+    scope: Scope,
+    name: String,
+) -> Result<String, Error> {
+    let runner = connections
+        .runner(Some(&scope.gateway), scope.connection_id.as_deref())
+        .await?;
+    Bridge::new(runner).logs(&scope, &name).await
 }
 
 #[tauri::command]
 async fn change_agent_state(
     updates: tauri::State<'_, AppUpdates>,
+    connections: tauri::State<'_, SshConnections>,
     scope: Scope,
     name: String,
     action: LifecycleAction,
 ) -> Result<String, Error> {
     let _guard = updates.mutation().map_err(Error::new)?;
-    bridge().lifecycle(&scope, &name, action).await
+    let runner = connections
+        .runner(Some(&scope.gateway), scope.connection_id.as_deref())
+        .await?;
+    Bridge::new(runner).lifecycle(&scope, &name, action).await
 }
 
 #[tauri::command]
 async fn change_provider_access(
     updates: tauri::State<'_, AppUpdates>,
+    connections: tauri::State<'_, SshConnections>,
     scope: Scope,
     name: String,
     provider: String,
     action: ProviderAction,
 ) -> Result<String, Error> {
     let _guard = updates.mutation().map_err(Error::new)?;
-    bridge()
+    let runner = connections
+        .runner(Some(&scope.gateway), scope.connection_id.as_deref())
+        .await?;
+    Bridge::new(runner)
         .provider_change(&scope, &name, &provider, action)
         .await
 }
@@ -54,10 +89,17 @@ async fn change_provider_access(
 #[tauri::command]
 async fn apply_agent_policy(
     updates: tauri::State<'_, AppUpdates>,
+    connections: tauri::State<'_, SshConnections>,
     edit: PolicyEdit,
 ) -> Result<String, Error> {
     let _guard = updates.mutation().map_err(Error::new)?;
-    bridge().apply_policy(edit).await
+    let runner = connections
+        .runner(
+            Some(&edit.scope.gateway),
+            edit.scope.connection_id.as_deref(),
+        )
+        .await?;
+    Bridge::new(runner).apply_policy(edit).await
 }
 
 #[tauri::command]
@@ -92,9 +134,17 @@ fn main() {
             app_updates::set_auto_update,
             app_updates::check_shellguardian_update,
             app_updates::download_shellguardian_update,
-            app_updates::restart_for_update
+            app_updates::restart_for_update,
+            ssh_connections::connect_ssh_gateway,
+            ssh_connections::get_ssh_connections,
+            ssh_connections::disconnect_ssh_gateway
         ])
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            if let Err(error) = desktop_integration::repair_legacy_launcher() {
+                eprintln!("ShellGuardian launcher repair was unavailable: {error}");
+            }
+            app.manage(SshConnections::default());
             let window = app
                 .get_webview_window("main")
                 .expect("configured main window");
@@ -110,6 +160,11 @@ fn main() {
             app_updates::start(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("could not run ShellGuardian");
+        .build(tauri::generate_context!())
+        .expect("could not build ShellGuardian")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                tauri::async_runtime::block_on(app.state::<SshConnections>().shutdown());
+            }
+        });
 }

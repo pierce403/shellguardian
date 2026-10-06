@@ -9,7 +9,9 @@ and check the installed OpenShell version and official release status.
 OpenShell owns the state, credentials, authentication, and enforcement.
 ShellGuardian has no database, service daemon, or persistent browser storage.
 The native Rust bridge uses the installed CLI and its existing registered local
-or remote gateways. Selecting a gateway in the app does not change CLI context.
+or remote gateways. Session SSH tunnels can reach a remote server through its
+registered OpenShell authentication profile. Selecting a gateway in the app does
+not change CLI context. The interface follows your OS light or dark appearance.
 
 ## Run
 
@@ -24,11 +26,33 @@ libraries. The launcher extracts the AppImage without FUSE. Other platforms are
 not published yet. For inspection-first and pinned installation, see
 [installation and updates](docs/releases.md).
 
+On Ubuntu, open ShellGuardian from Show Apps and choose **Pin to Dash** from its
+dock icon. The installer supplies the shield/terminal icon and desktop entry;
+updates retain their identity. The app does not change your favorites.
+
 Automatic **ShellGuardian** updates default on. Signed updates download while the
 app is open and install when you close it normally, without interrupting an
 OpenShell change. Turn them off in OpenShell & settings. Only this preference is
 saved, in one small `preferences.json` file. There is no database. OpenShell is
 never installed or upgraded automatically.
+
+### Connect over SSH
+
+In **OpenShell & settings**, enter an SSH host alias or `user@host` and explicitly
+choose the remote server's existing OpenShell mTLS profile. OpenSSH uses your
+configured key or agent and requires a host key already trusted in `known_hosts`.
+Configure authentication and host trust with OpenSSH first; the app has no password
+or host-key approval prompt.
+
+The remote OpenShell port defaults to `17670`. Leave the SSH port blank to keep
+the host alias's configured port, or specify one under Port settings. The tunnel
+forwards a private local port to `127.0.0.1` on the remote machine. OpenShell still
+verifies mTLS: the remote server's certificate must include IP SAN `127.0.0.1`
+for the tunnel endpoint; a `localhost` DNS SAN alone is insufficient.
+
+Connections exist only for the current app session. Disconnect waits for active
+operations; closing the app stops its SSH processes. A failed connection remains
+disconnected until you reconnect, with no fallback to a different gateway.
 
 ### Development
 
@@ -92,8 +116,9 @@ uses an ignored development cache; it is not part of the application.
   old environment, even after the attachment changes for new processes.
 - No gateway provisioning, sandbox creation/deletion, automatic OpenShell installation,
   token-budget enforcement, or persistent activity archive is included.
-- Live mutation and remote-host acceptance still require a disposable test
-  environment. Existing agents and credentials were not changed during development.
+- A native tunnel fixture verifies authenticated OpenShell reads and disconnect.
+  Physical remote-host acceptance and live agent mutations still require a
+  disposable test environment. Existing agents and credentials were not changed.
 
 See [FEATURES.md](FEATURES.md), [architecture](docs/architecture.md), and the
 [inspected upstream contract](docs/openshell-contract.md) for acceptance evidence

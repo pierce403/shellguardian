@@ -36,9 +36,11 @@ import {
 } from 'lucide-react';
 import * as api from './api';
 import AppUpdates, { useAppUpdates } from './AppUpdates';
+import SshConnections, { useSshConnections } from './SshConnections';
 import type {
   Agent,
   AgentDetail,
+  Gateway,
   Json,
   PolicyEdit,
   Provider,
@@ -47,6 +49,7 @@ import type {
   Snapshot,
   UpdateInfo,
   AppUpdateStatus,
+  SshConnection,
 } from './types';
 
 type Page = 'overview' | 'agents' | 'credentials' | 'activity' | 'openshell';
@@ -106,6 +109,9 @@ function IconButton({
 
 function useSnapshot(selection: Selection) {
   const [data, setData] = useState<Snapshot | null>(null);
+  // Local profile discovery is independent of the selected transport. Keep it
+  // available for recovery when a failed SSH lease prevents a scoped snapshot.
+  const [gateways, setGateways] = useState<Gateway[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -113,7 +119,7 @@ function useSnapshot(selection: Selection) {
   useEffect(() => {
     let alive = true;
     let inFlight = false;
-    const signature = `${selection.gateway}/${selection.workspace}`;
+    const signature = `${selection.connectionId ?? 'direct'}/${selection.gateway}/${selection.workspace}`;
     if (previousScope.current !== signature) {
       setData(null);
       previousScope.current = signature;
@@ -126,6 +132,7 @@ function useSnapshot(selection: Selection) {
         const snapshot = await api.getSnapshot(selection);
         if (alive) {
           setData(snapshot);
+          setGateways(snapshot.gateways);
           setError(null);
         }
       } catch (error) {
@@ -143,8 +150,14 @@ function useSnapshot(selection: Selection) {
       alive = false;
       window.clearInterval(interval);
     };
-  }, [selection.gateway, selection.workspace, revision]);
-  return { data, busy, error, refresh: useCallback(() => setRevision((value) => value + 1), []) };
+  }, [selection.gateway, selection.workspace, selection.connectionId, revision]);
+  return {
+    data,
+    gateways,
+    busy,
+    error,
+    refresh: useCallback(() => setRevision((value) => value + 1), []),
+  };
 }
 
 function Modal({
@@ -514,7 +527,7 @@ function AgentDrawer({
     return () => {
       alive = false;
     };
-  }, [scope.gateway, scope.workspace, agent.name, retry, refreshRevision]);
+  }, [scope.gateway, scope.workspace, scope.connectionId, agent.name, retry, refreshRevision]);
   useEffect(() => {
     if (tab !== 'activity') return;
     let alive = true;
@@ -535,7 +548,15 @@ function AgentDrawer({
     return () => {
       alive = false;
     };
-  }, [tab, scope.gateway, scope.workspace, agent.name, logsRetry, refreshRevision]);
+  }, [
+    tab,
+    scope.gateway,
+    scope.workspace,
+    scope.connectionId,
+    agent.name,
+    logsRetry,
+    refreshRevision,
+  ]);
   const currentAgent = detail?.agent ?? agent;
   function lifecycle() {
     const action = stopped(currentAgent.phase) ? 'start' : 'stop';
@@ -843,6 +864,7 @@ function AgentDrawer({
 
 function OpenShellPage({
   data,
+  gateways,
   selection,
   onWorkspace,
   onToast,
@@ -851,8 +873,13 @@ function OpenShellPage({
   onCheck,
   appUpdate,
   onAppUpdate,
+  ssh,
+  mutationBusy,
+  onSshSelect,
+  onSshDisconnected,
 }: {
   data: Snapshot | null;
+  gateways: Gateway[];
   selection: Selection;
   onWorkspace: (workspace: string) => void;
   onToast: (message: string) => void;
@@ -861,6 +888,10 @@ function OpenShellPage({
   onCheck: () => void;
   appUpdate: AppUpdateStatus | null;
   onAppUpdate: (value: AppUpdateStatus) => void;
+  ssh: ReturnType<typeof useSshConnections>;
+  mutationBusy: boolean;
+  onSshSelect: (connection: SshConnection) => void;
+  onSshDisconnected: (connectionId: string) => void;
 }) {
   const [workspace, setWorkspace] = useState(selection.workspace);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -874,6 +905,15 @@ function OpenShellPage({
   }
   return (
     <div className="settings-layout">
+      <SshConnections
+        gateways={gateways}
+        selection={selection}
+        controller={ssh}
+        mutationBusy={mutationBusy}
+        onSelect={onSshSelect}
+        onDisconnected={onSshDisconnected}
+        onToast={onToast}
+      />
       <AppUpdates status={appUpdate} onStatus={onAppUpdate} onToast={onToast} />
       <section className="settings-card">
         <div className="settings-heading">
@@ -1020,9 +1060,10 @@ function OpenShellPage({
 
 export default function App() {
   const { status: appUpdate, setStatus: setAppUpdate } = useAppUpdates();
+  const ssh = useSshConnections();
   const [page, setPage] = useState<Page>('overview');
   const [selection, setSelection] = useState<Selection>({ gateway: null, workspace: 'default' });
-  const { data, busy, error, refresh } = useSnapshot(selection);
+  const { data, gateways, busy, error, refresh } = useSnapshot(selection);
   const [query, setQuery] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('all');
   const [selectedAgent, setSelectedAgent] = useState<{ agent: Agent; tab: DetailTab } | null>(null);
@@ -1070,8 +1111,14 @@ export default function App() {
     setSelectedAgent(null);
     setPending(null);
     setMutationError(null);
-  }, [selection.gateway, selection.workspace]);
-  const connected = data?.status?.status.toLowerCase() === 'connected';
+  }, [selection.gateway, selection.workspace, selection.connectionId]);
+  const sshConnection = ssh.connections.find(
+    (connection) => connection.id === selection.connectionId,
+  );
+  const connected =
+    !error &&
+    data?.status?.status.toLowerCase() === 'connected' &&
+    (!selection.connectionId || sshConnection?.status === 'connected');
   const agents = data?.agents ?? [];
   const visibleAgents = agents.filter(
     (agent) =>
@@ -1098,6 +1145,13 @@ export default function App() {
     openshell: 'OpenShell & settings',
   };
   const gateway = data?.gateways.find((gateway) => gateway.name === data.scope?.gateway);
+  function selectSshConnection(connection: SshConnection) {
+    setSelection((current) => ({
+      ...current,
+      gateway: connection.gateway,
+      connectionId: connection.id,
+    }));
+  }
   function request(action: Pending) {
     setMutationError(null);
     setPending(action);
@@ -1234,22 +1288,58 @@ export default function App() {
               </label>
               <select
                 id="gateway-selector"
-                value={selection.gateway ?? data?.scope?.gateway ?? ''}
-                disabled={!data?.gateways.length || mutationBusy}
-                onChange={(event) =>
-                  setSelection((current) => ({ ...current, gateway: event.target.value }))
+                value={
+                  selection.connectionId
+                    ? `ssh:${selection.connectionId}`
+                    : (selection.gateway ?? data?.scope?.gateway ?? '')
                 }
+                disabled={(!gateways.length && !ssh.connections.length) || mutationBusy || ssh.busy}
+                onChange={(event) => {
+                  if (event.target.value.startsWith('ssh:')) {
+                    const connection = ssh.connections.find(
+                      (item) => item.id === event.target.value.slice(4),
+                    );
+                    if (connection) selectSshConnection(connection);
+                  } else {
+                    setSelection((current) => ({
+                      ...current,
+                      gateway: event.target.value || null,
+                      connectionId: null,
+                    }));
+                  }
+                }}
               >
-                {!data?.gateways.length && <option value="">No gateway</option>}
-                {data?.gateways.map((gateway) => (
+                {selection.connectionId && !sshConnection && (
+                  <option value={`ssh:${selection.connectionId}`} disabled>
+                    SSH connection unavailable
+                  </option>
+                )}
+                <option value="">Default OpenShell gateway</option>
+                {gateways.map((gateway) => (
                   <option value={gateway.name} key={gateway.name}>
                     {gateway.name}
                     {gateway.is_remote ? ' · Remote' : ' · Local'}
                   </option>
                 ))}
+                {ssh.connections.length > 0 && (
+                  <optgroup label="SSH connections">
+                    {ssh.connections.map((connection) => (
+                      <option value={`ssh:${connection.id}`} key={connection.id}>
+                        {connection.destination} · SSH
+                        {connection.status === 'disconnected' ? ' (disconnected)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <ChevronDown size={13} />
             </div>
+            <IconButton
+              icon={Plus}
+              label="Connect to remote server"
+              onClick={() => setPage('openshell')}
+              disabled={mutationBusy}
+            />
             <IconButton
               icon={RefreshCw}
               label="Refresh OpenShell state"
@@ -1469,13 +1559,20 @@ export default function App() {
                       <Server size={18} />
                       <h3>Your connection</h3>
                     </div>
-                    <strong>{gateway?.name ?? 'OpenShell desktop'}</strong>
+                    <strong>
+                      {sshConnection?.destination ??
+                        (selection.connectionId
+                          ? 'SSH connection unavailable'
+                          : (gateway?.name ?? 'OpenShell desktop'))}
+                    </strong>
                     <p>
-                      {gateway
-                        ? gateway.is_remote
-                          ? 'Remote gateway'
-                          : 'Local gateway'
-                        : 'Connect using the desktop app'}
+                      {selection.connectionId
+                        ? 'SSH tunnel'
+                        : gateway
+                          ? gateway.is_remote
+                            ? 'Remote gateway'
+                            : 'Local gateway'
+                          : 'Connect using the desktop app'}
                     </p>
                     <span>
                       <LockKeyhole size={12} />
@@ -1571,11 +1668,22 @@ export default function App() {
           {page === 'openshell' && (
             <OpenShellPage
               data={data}
+              gateways={gateways}
               selection={selection}
               onWorkspace={(workspace) => setSelection((current) => ({ ...current, workspace }))}
               onToast={setToast}
               appUpdate={appUpdate}
               onAppUpdate={setAppUpdate}
+              ssh={ssh}
+              mutationBusy={mutationBusy}
+              onSshSelect={selectSshConnection}
+              onSshDisconnected={(connectionId) => {
+                setSelection((current) =>
+                  current.connectionId === connectionId
+                    ? { ...current, gateway: null, connectionId: null }
+                    : current,
+                );
+              }}
               update={update}
               checking={checkingUpdate}
               onCheck={() => {
@@ -1594,7 +1702,7 @@ export default function App() {
       </div>
       {selectedAgent && data?.scope && (
         <AgentDrawer
-          key={`${data.scope.gateway}/${data.scope.workspace}/${selectedAgent.agent.name}`}
+          key={`${data.scope.connectionId ?? 'direct'}/${data.scope.gateway}/${data.scope.workspace}/${selectedAgent.agent.name}`}
           agent={selectedAgent.agent}
           scope={data.scope}
           providers={data.providers}
@@ -1630,6 +1738,16 @@ export default function App() {
                 {pending.scope.gateway} / {pending.scope.workspace}
               </strong>
             </span>
+            {pending.scope.connectionId && (
+              <span>
+                SSH server
+                <strong>
+                  {ssh.connections.find(
+                    (connection) => connection.id === pending.scope.connectionId,
+                  )?.destination ?? 'Connection unavailable'}
+                </strong>
+              </span>
+            )}
           </div>
           {pending.before && (
             <div className="policy-comparison">

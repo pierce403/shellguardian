@@ -9,6 +9,12 @@ use tokio::{
 };
 
 pub trait Runner: Send + Sync {
+    /// A tunnel runner is bound to one verified native connection. Direct runners
+    /// must reject scopes carrying a connection ID instead of falling back.
+    fn connection_id(&self) -> Option<&str> {
+        None
+    }
+
     fn run(
         &self,
         args: &[String],
@@ -29,7 +35,10 @@ impl Default for ProcessRunner {
     }
 }
 
-async fn read_bounded(mut stream: impl AsyncRead + Unpin, limit: u64) -> Result<Vec<u8>> {
+pub(crate) async fn read_bounded(
+    mut stream: impl AsyncRead + Unpin,
+    limit: u64,
+) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     (&mut stream)
         .take(limit + 1)

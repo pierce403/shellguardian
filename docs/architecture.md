@@ -4,17 +4,18 @@ ShellGuardian is a presentation layer over the installed NVIDIA OpenShell CLI.
 There is no additional control plane. The Rust adapter is deliberately separate
 from Tauri so its command contracts can be tested without GUI libraries.
 
-| Owner | Responsibility |
-| --- | --- |
-| OpenShell gateway | Sandbox inventory, policies, provider state, authentication, runtime lifecycle |
-| OpenShell sandbox/runtime | Network, filesystem, process and credential enforcement |
-| Installed OpenShell CLI | Gateway discovery, remote connections, stored authentication, RPC compatibility |
-| Rust bridge | Typed, scoped command arguments; bounded execution; safe presentation types |
-| Tauri window | Display snapshots, collect user choices, review and request explicit actions |
-| Tauri updater | Verify signed app packages and versions; install without changing OpenShell |
+| Owner                     | Responsibility                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| OpenShell gateway         | Sandbox inventory, policies, provider state, authentication, runtime lifecycle |
+| OpenShell sandbox/runtime | Network, filesystem, process and credential enforcement                        |
+| Installed OpenShell CLI   | Gateway discovery, stored authentication, RPC compatibility                    |
+| OpenSSH                   | Host configuration, host trust, key/agent authentication, encrypted forwarding |
+| Rust bridge               | Typed, scoped commands; bounded execution; in-memory SSH process ownership     |
+| Tauri window              | Display snapshots, collect user choices, review and request explicit actions   |
+| Tauri updater             | Verify signed app packages and versions; install without changing OpenShell    |
 
 The webview cannot execute an arbitrary command or read credential files. IPC
-exposes thirteen typed commands. Production CSP restricts network access to the
+exposes sixteen typed commands. Production CSP restricts network access to the
 Tauri IPC channel. OpenShell release checks contact the fixed NVIDIA endpoint;
 app updates use the fixed ShellGuardian GitHub stable-release channel and signed
 assets. Neither accepts frontend-controlled endpoints or trust keys.
@@ -36,6 +37,34 @@ OpenShell's reported authentication status is distinct from public endpoint
 reachability. Protected reads and actions remain subject to OpenShell's own
 authorization; ShellGuardian never weakens TLS verification or adds a separate
 identity store.
+
+## SSH transport
+
+OpenShell 0.1.2 stores SSH registration metadata but does not establish this
+tunnel for scoped CLI requests. ShellGuardian owns only the transport process;
+the user explicitly chooses the remote server's registered mTLS profile.
+OpenSSH supplies existing key/agent authentication and strict `known_hosts`
+verification. No password, private key, host-key approval, arbitrary SSH option,
+or executable crosses IPC. Host aliases keep their configured SSH port unless
+the user explicitly supplies a port. Remote OpenShell defaults to port 17670.
+
+Native code reserves a loopback port and invokes `ssh -N -T` to forward
+`127.0.0.1:<local-port>` to remote `127.0.0.1:<OpenShell-port>`. It checks effective
+SSH configuration and rejects additional forwards. After forwarding opens, an
+authenticated OpenShell status read must succeed before the session is usable.
+OpenShell receives its selected profile plus a native-generated
+`--gateway-endpoint https://127.0.0.1:<local-port>`. The server certificate must
+include IP SAN `127.0.0.1`; `localhost` alone does not cover this address. Normal
+TLS and mTLS verification remain enabled.
+
+Each session ID is bound to its profile and owned process. A complete bridge
+operation holds a lease, including paginated reads and policy read/apply sequences.
+Missing, stale, mismatched, or dead sessions return errors rather than routing to
+the profile's direct endpoint. Normal disconnect waits for leases before killing
+and reaping its child. Normal exit is guarded against mutations and connection
+setup, then kills/reaps the app's SSH children without waiting for read leases.
+No saved connection list, SSH credentials, or gateway-registration changes are
+introduced. SSH configuration remains trusted local-user configuration.
 
 ## Actions
 
@@ -89,6 +118,18 @@ The only saved app preference is `autoUpdate` in one atomically replaced owner-o
 JSON file. Missing means on; corrupt/unreadable means paused, not silently enabled.
 This is not an agent database or a second source of runtime state. See
 [installation and updates](releases.md) for file locations and release trust.
+
+## Desktop integration
+
+The UI applies OS light/dark appearance before React renders, then follows Tauri
+theme events. A live `prefers-color-scheme` query provides the browser/platform
+fallback. Theme changes are session state, with no new preference file.
+
+Ubuntu uses `bot.recurse.shellguardian` for both the GTK app ID and desktop entry
+name, with `StartupWMClass=shellguardian` for X11. The installer registers the
+scalable shield/terminal icon under the user's hicolor theme. Release AppImages
+can repair the exact legacy installer-created entry after an update; absent or
+customized launchers/icons are preserved. The app never changes dock favorites.
 
 ## Preview
 

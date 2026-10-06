@@ -6,6 +6,7 @@
 
 pub mod model;
 pub mod process;
+pub mod ssh;
 mod updates;
 
 use model::*;
@@ -60,7 +61,11 @@ pub fn validate_name(value: &str) -> Result<()> {
 
 pub fn validate_scope(scope: &Scope) -> Result<()> {
     validate_name(&scope.gateway)?;
-    validate_name(&scope.workspace)
+    validate_name(&scope.workspace)?;
+    if let Some(id) = &scope.connection_id {
+        validate_name(id)?;
+    }
+    Ok(())
 }
 
 fn scoped_args(scope: &Scope, args: &[&str]) -> Result<Vec<String>> {
@@ -100,6 +105,20 @@ impl<R: Runner> Bridge<R> {
         Self { runner }
     }
 
+    fn validate_connection(&self, connection_id: Option<&str>) -> Result<()> {
+        if connection_id != self.runner.connection_id() {
+            return Err(Error::new(
+                "This SSH connection is no longer available. Reconnect before continuing.",
+            ));
+        }
+        Ok(())
+    }
+
+    fn scoped_args(&self, scope: &Scope, args: &[&str]) -> Result<Vec<String>> {
+        self.validate_connection(scope.connection_id.as_deref())?;
+        scoped_args(scope, args)
+    }
+
     /// Read the CLI version independently of any gateway's availability.
     pub async fn installed_version(&self) -> Result<String> {
         let raw = self
@@ -115,7 +134,7 @@ impl<R: Runner> Bridge<R> {
 
     async fn read(&self, scope: &Scope, args: &[&str]) -> Result<String> {
         self.runner
-            .run(&scoped_args(scope, args)?, Duration::from_secs(15))
+            .run(&self.scoped_args(scope, args)?, Duration::from_secs(15))
             .await
     }
 
@@ -131,7 +150,7 @@ impl<R: Runner> Bridge<R> {
         let mut cursor = String::new();
         let mut visited = HashSet::new();
         for _ in 0..50 {
-            let mut command = scoped_args(scope, args)?;
+            let mut command = self.scoped_args(scope, args)?;
             command.extend([
                 "--output".into(),
                 "json".into(),
@@ -177,6 +196,7 @@ impl<R: Runner> Bridge<R> {
     /// Read-only snapshot. Independent failures are kept separate, so a provider
     /// permissions failure does not hide a successfully fetched agent inventory.
     pub async fn snapshot(&self, selection: Selection) -> Result<Snapshot> {
+        self.validate_connection(selection.connection_id.as_deref())?;
         validate_name(&selection.workspace)?;
         if let Some(name) = &selection.gateway {
             validate_name(name)?;
@@ -225,6 +245,7 @@ impl<R: Runner> Bridge<R> {
         let scope = selected.map(|g| Scope {
             gateway: g.name.clone(),
             workspace: selection.workspace,
+            connection_id: selection.connection_id,
         });
         if scope.is_none() {
             notices.push(Notice {
@@ -353,7 +374,7 @@ impl<R: Runner> Bridge<R> {
         };
         self.runner
             .run(
-                &scoped_args(scope, &["sandbox", verb, name])?,
+                &self.scoped_args(scope, &["sandbox", verb, name])?,
                 Duration::from_secs(120),
             )
             .await?;
@@ -375,7 +396,7 @@ impl<R: Runner> Bridge<R> {
         };
         self.runner
             .run(
-                &scoped_args(
+                &self.scoped_args(
                     scope,
                     &[
                         "sandbox",
@@ -446,7 +467,7 @@ impl<R: Runner> Bridge<R> {
             .ok_or_else(|| Error::new("Policy staging path is unsupported."))?;
         self.runner
             .run(
-                &scoped_args(
+                &self.scoped_args(
                     &edit.scope,
                     &[
                         "policy",

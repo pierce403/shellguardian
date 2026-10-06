@@ -265,7 +265,7 @@ async fn install(app: AppHandle, restart: bool) -> Result<(), String> {
         return Err(inner.status.error.clone().unwrap());
     }
     if restart {
-        app.restart();
+        app.request_restart();
     } else {
         app.exit(0);
     }

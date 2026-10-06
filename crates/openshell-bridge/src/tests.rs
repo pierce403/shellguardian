@@ -70,6 +70,7 @@ fn scope() -> Scope {
     Scope {
         gateway: "local".into(),
         workspace: "default".into(),
+        connection_id: None,
     }
 }
 fn agent() -> Value {

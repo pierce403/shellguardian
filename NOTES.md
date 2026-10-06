@@ -283,3 +283,65 @@ navigation, release downloads, and copy-command success message. At the temporar
 table fits its 345px container without horizontal overflow. Visually checked the
 mobile release section, reset the viewport, and returned to the project overview.
 The browser's only page script is `/site.js`. No OpenShell operation was performed.
+
+## 2026-10-06: Ubuntu integration, system theme, and SSH transport
+
+Reused the existing shield-and-terminal artwork for stable Ubuntu menu/dock
+integration. The installer now installs the scalable icon and desktop metadata;
+the release app repairs only the exact untouched legacy installer entry. Custom
+entries and `--no-desktop` installs are preserved. No user favorites were changed.
+Ten installer checks and six native migration tests passed. Physical GNOME dock
+pinning/grouping remains a user-desktop acceptance step.
+
+Added semantic light/dark palettes. The initial media preference is applied before
+React renders, followed by native Tauri theme detection and change events, with
+media-query fallback. No theme preference is saved. Six browser checks cover
+light/dark rendering, live changes, native precedence, fallback, and stale initial
+read races. The actual Ubuntu native WebKit window reported dark and rendered the
+matching palette without changing system preferences.
+
+Inspected NVIDIA/OpenShell v0.1.2 source and installed CLI: its SSH gateway
+registration is metadata, not an active tunnel. The standard published gateway
+port is 17670. ShellGuardian now owns temporary OpenSSH transport only, using the
+existing OpenShell mTLS profile and verified native-generated loopback endpoint.
+SSH alias key/user/port and jump-host configuration remain with OpenSSH. Strict
+host-key checks, key/agent authentication, forwarding-only arguments, bounded
+redacted diagnostics, and effective-config checks reject unrelated inherited
+forwards. No authentication material or OpenShell config is copied or changed.
+
+Session IDs scope all reads and mutations; a stale/dead ID cannot fall back to a
+direct gateway. Normal disconnect waits for the entire active operation, then
+kills/reaps and removes the session. App exit kills/reaps without waiting for
+potentially long paginated reads; existing mutation guards protect close/update.
+Native restart uses Tauri's event-loop restart request so exit cleanup runs.
+
+Review found two UI recovery edges: failed scoped reads erased the profile picker,
+and failed reconnect could visually select an unrelated direct gateway. Kept only
+local profile discovery in memory independently of scoped data, added an explicit
+unavailable SSH selection/default gateway choice, and prefilled reconnect settings.
+Mutation review identifies the SSH destination as well as gateway/workspace.
+
+Rust verification passed 38 bridge and 14 native tests, Clippy for both crates,
+and a debug native build. The private SSH fixture uses temporary keys, a pinned
+host key, restricted loopback forwards, and an extracted official Ubuntu sshd
+package without system installation or changes to `~/.ssh`. Real forwarding,
+changed-host-key and unauthorized-key rejection, forbidden-port rejection, and
+the tunneled gateway TLS peer identity passed. Native read/disconnect, normal
+window close, daemon-loss, full UI suite, and publication evidence follow below.
+
+The complete native SSH acceptance passed against the real local OpenShell 0.1.2
+gateway through the private SSH server: actual connect form, mTLS-authenticated
+scoped snapshots, explicit disconnect listener closure, stale-ID rejection,
+server-session death, no direct fallback, and normal native window-close cleanup.
+The original direct gateway remained healthy and its active registration/state
+was unchanged. Browser storage remained empty. Physical remote-host acceptance
+was not performed because no remote destination was provided.
+
+The test harness needed an actual X11 `WM_DELETE_WINDOW` message; WebDriver's
+window-close endpoint closes only its browsing context. SSH daemon-loss testing
+also needed to terminate fixture-owned session descendants: stopping the listener
+alone intentionally leaves existing OpenSSH sessions alive. The fixture captures
+only its own descendant PIDs/start times and does not match or stop unrelated
+processes. All fixture keys/listeners and private display/driver processes were
+cleaned up. The final full Chromium suite passed all 23 checks, including failed
+initial reads, failed reconnect recovery, scoped mutation review, and both themes.

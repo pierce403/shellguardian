@@ -10,6 +10,10 @@ cancel/apply dialogs, provider attachment controls, policy comparisons, keyboard
 navigation, scoping, unavailable data, and small-screen layout. They do not prove
 native IPC or real OpenShell mutations.
 
+Theme tests exercise both palettes, live system preference changes, native event
+priority and fallback, and delayed native reads. Contrast checks cover agent
+cards, status labels, form fields, and policy review dialogs in both themes.
+
 ```bash
 npm ci
 npx playwright install chromium
@@ -74,3 +78,70 @@ Never modify existing agents to verify a new UI. Live mutation acceptance should
 use an explicitly disposable environment with known test credentials and no paid
 inference. Check both command receipts and subsequent gateway state. Do not mark
 feature readiness stable from fake command contracts or a browser preview alone.
+
+## Native SSH and system theme acceptance
+
+`scripts/native-ssh-smoke.mjs` manages a private Xvfb display, random WebDriver and
+SSH listener ports, temporary SSH keys, and an isolated client configuration. It
+uses the already registered, active mTLS gateway at `https://127.0.0.1:17670` for
+read-only status and inventory checks. It does not create gateways or change
+OpenShell's active selection, credentials, policies, agents, or the user's SSH
+configuration. The fixture owns all test SSH keys and removes them on exit.
+
+Requirements are Linux, Xvfb, a C compiler with Xlib development headers,
+OpenSSH client/server binaries, tauri-driver, and WebKitWebDriver. By default the
+drivers are read from `.cache/tauri-driver/bin/tauri-driver` and
+`.cache/native/sysroot/usr/bin/WebKitWebDriver`; set `TAURI_DRIVER` and
+`WEBKIT_DRIVER` to override those paths. The server can be installed already or
+extracted from an official distribution package without installing it globally.
+The fixture checks `/usr/sbin/sshd`, then
+`.cache/ssh-fixture-deps/root/usr/sbin/sshd`; `SHELLGUARDIAN_TEST_SSHD` overrides it.
+Adjacent `sshd-session` and `sshd-auth` binaries from newer OpenSSH packages are
+also supported.
+
+For an embedded frontend built with `npm run tauri build -- --debug --no-bundle`:
+
+```bash
+node scripts/ssh-fixture.mjs --self-test
+node scripts/native-ssh-smoke.mjs target/debug/shellguardian
+```
+
+A plain `cargo build -p shellguardian` uses Tauri's development URL. The following
+mode starts and stops its own Vite server. Port 1420 must be free; avoid running
+the browser suite at the same time:
+
+```bash
+SHELLGUARDIAN_NATIVE_DEV=1 node scripts/native-ssh-smoke.mjs target/debug/shellguardian
+```
+
+Other native tests can import `startSshFixture()` from `scripts/ssh-fixture.mjs`,
+launch their application or driver with `fixture.env`, and use `fixture.alias`,
+`fixture.port`, and remote port 17670. Always await `fixture.cleanup()` in a
+`finally` block. The PATH wrapper invokes real OpenSSH with a private `-F`
+configuration, pinned known-host key, explicit test identity, and batch-only
+authentication. The server permits forwarding to the selected loopback targets
+only, with no shell sessions or agent forwarding. `fixture.stopServer()` closes
+both the owned listener and its captured session children, since stopping an
+OpenSSH listener alone deliberately preserves established sessions.
+
+`scripts/native-close-window.c` sends a native `WM_DELETE_WINDOW` request on the
+fixture's private X display. This exercises the actual GTK/Tauri close lifecycle;
+WebDriver's close-window endpoint only closes its WebKit browsing context. The
+compiled helper exists only in the temporary fixture directory.
+
+Verified on 2026-10-06 with Ubuntu OpenSSH 10.2p1: the native form connected through
+real SSH and authenticated with OpenShell mTLS; snapshots preserved the SSH
+connection ID; disconnect and native app close released their listeners; daemon
+session loss was reported; expired IDs could not fall back to the healthy direct
+gateway. Gateway registrations and the active CLI profile were unchanged. The
+actual native OS theme read returned `dark`, matching the document theme and CSS
+color scheme without changing desktop settings. The screenshot is
+`test-results/native-ssh-connected.png`. The fixture self-test additionally
+verified rejected client keys, changed host keys, refused remote ports, transport
+to the existing OpenShell TLS endpoint, and removal of keys/listeners.
+
+The test used the official Ubuntu `openssh-server_10.2p1-2ubuntu3.6_amd64.deb`
+extracted under the ignored cache, checked against the installed apt index's
+SHA256 `108256262b0fb7bb8eddd92e87230f775c90eb321413e8789754b3509f7b55c6`.
+Physical separate-host/network acceptance and native live OS setting changes
+remain separate from this loopback transport and current-theme acceptance.

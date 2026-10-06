@@ -8,6 +8,8 @@ use serde_json::Value;
 pub struct Selection {
     pub gateway: Option<String>,
     pub workspace: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
 }
 
 impl Default for Selection {
@@ -15,6 +17,7 @@ impl Default for Selection {
         Self {
             gateway: None,
             workspace: "default".into(),
+            connection_id: None,
         }
     }
 }
@@ -25,6 +28,31 @@ impl Default for Selection {
 pub struct Scope {
     pub gateway: String,
     pub workspace: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
+}
+
+/// SSH parameters contain no passwords, key material, commands, or arbitrary options.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SshConnectionRequest {
+    pub gateway: String,
+    pub destination: String,
+    pub remote_port: u16,
+    pub ssh_port: Option<u16>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConnection {
+    pub id: String,
+    pub gateway: String,
+    pub destination: String,
+    pub remote_port: u16,
+    pub ssh_port: Option<u16>,
+    pub local_port: u16,
+    pub status: String,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
