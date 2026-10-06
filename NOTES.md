@@ -191,3 +191,30 @@ added a scoped override, and rechecked the deployment dry-run. npm audit now rep
 zero vulnerabilities for the website tools. Static site header policy restricts
 scripts/styles/images to local assets and prohibits framing. `/install.sh` and
 `/latest.json` redirect to the official project GitHub Release.
+
+Cloudflare deployment from website source commit `baf5064` succeeded as Worker
+version `85b866dd-1341-4e37-b1b3-3a7645ab9fe1`; the custom domain is enabled in
+the expected account/zone. Authoritative DNS and Cloudflare's public DNS-over-HTTPS
+resolver returned IPv4/IPv6 addresses. The workstation temporarily had cached
+negative IPv4 answers: HTTPS with verified SNI and an authoritative-address
+override worked first, then ordinary hostname HTTPS succeeded without an override.
+Public HTML matched committed bytes. `/install.sh` returned the correct HTTPS
+GitHub redirect, and its fetched bytes matched the committed/released script.
+
+The published AppImage's real native webview connected to the existing mTLS
+OpenShell 0.1.2 gateway, performed its official release check, and reported zero
+browser storage entries. Its first attempt used the updater test driver's isolated
+`XDG_CONFIG_HOME`, which also hid the existing OpenShell registration. Restarting
+the driver in the ordinary read-only environment fixed the harness, with no
+production source change or copied keys. No user gateway/agent state was changed.
+
+Added a transport-only Worker because `_redirects` cannot express scheme/domain
+conditions. It upgrades HTTP to the fixed HTTPS canonical host while preserving
+path/query, then streams HTTPS static assets through the ASSETS binding. This does
+not change mail records, zone-wide TLS settings, or other hostnames. Tests cover
+redirect, canonical-host handling, and static passthrough.
+
+Retained an owner-only signing-key backup in `.release-keys/updater.key`, explicitly
+Git-ignored and separate from disposable build caches. The directory is 0700 and
+the key 0600. The user should retain an independent backup before moving/removing
+the checkout. The private key has never been printed or committed.

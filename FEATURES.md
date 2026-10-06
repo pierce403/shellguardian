@@ -117,10 +117,12 @@ Test Criteria:
 - [x] Installer checks cover integrity/network failures, unsafe versions, root and
   unsupported platforms, space-containing paths, rollback, and unmanaged/symlink targets.
 - [x] Browser tests cover the default-on switch, opt-out, and simulated manual update.
-- [x] Public release assets verified by checksum and installed in an isolated user path.
+- [x] Public release assets verified by checksum, installed in an isolated user path,
+  and the shipped AppImage connects to the real local OpenShell gateway.
 - [x] Native signed old-to-new update installs on normal close; opt-out persists across restart.
 - [ ] Adversarial signature/version/network responses exercised through the native updater.
-- [ ] Website published from exact committed source with functioning installation links.
+- [x] Website published at shellguardian.org from committed source; HTTPS, content
+  parity, browser rendering, and installation redirect/bytes verified.
 - [ ] macOS, Windows, and Linux ARM packages published and accepted. Not yet supported.
 
 ## Future extensions

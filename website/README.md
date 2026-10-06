@@ -15,8 +15,9 @@ npm run deploy
 
 Deploy only the committed/pushed source; verify public HTML and assets against
 that commit and check `/install.sh` through its GitHub Release redirect. No runtime
-secrets, storage, Worker application logic, or persistent deploy credentials are
-added. Wrangler reuses the user's existing local OAuth authorization.
+secrets, storage, or persistent deploy credentials are added. The tiny Worker
+only upgrades HTTP to HTTPS and passes HTTPS requests to static assets. Wrangler
+reuses the user's existing local OAuth authorization.
 
 The earlier owner-private Sites preview retains its identity in
 `.openai/hosting.json` and source checkout `/home/pierce/projects/shellguardian-website`.

@@ -4,6 +4,7 @@ target/
 src-tauri/target/
 src-tauri/gen/
 .cache/
+.release-keys/
 test-results/
 playwright-report/
 *.log

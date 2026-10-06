@@ -66,9 +66,9 @@ browser storage is added. OpenShell continues to own all agent state/enforcement
 
 The public verification key is committed in `src-tauri/tauri.conf.json`.
 `TAURI_SIGNING_PRIVATE_KEY` is a repository Actions secret; an owner-only backup
-is in the ignored local `.cache/signing/shellguardian.key`. Never print, commit,
+is in the owner-only ignored `.release-keys/updater.key`. Never print, commit,
 or put the private key in a website. Preserve it outside disposable build caches
-before cleaning the checkout; losing it prevents updates to existing installs.
+before removing the checkout; losing it prevents updates to existing installs.
 
 Update the workspace, npm, and Tauri versions together, commit and push main,
 then push an immutable `vX.Y.Z` tag. The pinned Actions workflow tests the exact
