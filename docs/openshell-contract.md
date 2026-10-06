@@ -70,6 +70,7 @@ disconnect waits for them. App exit kills/reaps owned SSH children, and no sessi
 state persists across app restarts.
 
 On 2026-10-06, a native fixture verified an authenticated gateway read through the
-tunnel, explicit disconnect, and listener cleanup on normal app close. Native
-tunnel-death, physical remote-host, and live agent-mutation acceptance remain
+tunnel, explicit disconnect, listener cleanup on normal app close, and SSH session
+death with no fallback to the healthy direct gateway. Active CLI registrations
+were unchanged. Physical remote-host and live agent-mutation acceptance remain
 unverified.

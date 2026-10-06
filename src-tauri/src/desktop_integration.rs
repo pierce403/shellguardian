@@ -290,12 +290,10 @@ mod tests {
             let bytes = fs::read(&saved).unwrap();
             symlink(&saved, target).unwrap();
             assert!(!install.repair());
-            assert!(
-                fs::symlink_metadata(target)
-                    .unwrap()
-                    .file_type()
-                    .is_symlink()
-            );
+            assert!(fs::symlink_metadata(target)
+                .unwrap()
+                .file_type()
+                .is_symlink());
             assert_eq!(fs::read(&saved).unwrap(), bytes);
         }
     }

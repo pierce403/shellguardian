@@ -345,3 +345,8 @@ only its own descendant PIDs/start times and does not match or stop unrelated
 processes. All fixture keys/listeners and private display/driver processes were
 cleaned up. The final full Chromium suite passed all 23 checks, including failed
 initial reads, failed reconnect recovery, scoped mutation review, and both themes.
+
+The v0.3.0 release workflow stopped before packaging on a Rustfmt difference in
+one launcher-migration test assertion. Applied the pinned Rust 1.97 formatter and
+checked the entire workspace. Kept the pushed tag immutable and advanced the
+release to v0.3.1; no v0.3.0 binaries or update manifest were published.
