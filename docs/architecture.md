@@ -11,10 +11,13 @@ from Tauri so its command contracts can be tested without GUI libraries.
 | Installed OpenShell CLI | Gateway discovery, remote connections, stored authentication, RPC compatibility |
 | Rust bridge | Typed, scoped command arguments; bounded execution; safe presentation types |
 | Tauri window | Display snapshots, collect user choices, review and request explicit actions |
+| Tauri updater | Verify signed app packages and versions; install without changing OpenShell |
 
 The webview cannot execute an arbitrary command or read credential files. IPC
-exposes eight typed commands. Production CSP restricts network access to the
-Tauri IPC channel; the Rust update checker contacts one fixed official endpoint.
+exposes thirteen typed commands. Production CSP restricts network access to the
+Tauri IPC channel. OpenShell release checks contact the fixed NVIDIA endpoint;
+app updates use the fixed ShellGuardian GitHub stable-release channel and signed
+assets. Neither accepts frontend-controlled endpoints or trust keys.
 The URL opener opens only the fixed official OpenShell releases page.
 
 ## Reads
@@ -74,6 +77,18 @@ against a compromised application. Agent-facing enforcement belongs to OpenShell
 Token/cost/credential-use statistics are unavailable through the inspected CLI.
 There is no local accounting approximation or pretend budget control. New metrics
 must come from a verified OpenShell interface and remain gateway-owned.
+
+## App updates and preferences
+
+Automatic ShellGuardian updates default on. Tauri verifies each downloaded
+artifact and its signed version; bytes stay in memory until normal close or an
+explicit restart. In-flight OpenShell mutations block self-installation and close.
+Opt-out cancels/discards pending work, and OpenShell is never upgraded automatically.
+
+The only saved app preference is `autoUpdate` in one atomically replaced owner-only
+JSON file. Missing means on; corrupt/unreadable means paused, not silently enabled.
+This is not an agent database or a second source of runtime state. See
+[installation and updates](releases.md) for file locations and release trust.
 
 ## Preview
 
