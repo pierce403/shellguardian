@@ -200,3 +200,10 @@ identities. The native SSH harness with `SHELLGUARDIAN_VERIFY_DESKTOP_IDENTITY=1
 also verified the corresponding X11 class and GTK application ID. This closes the
 protocol-level coverage gap; visual dock confirmation still requires the user's
 actual GNOME session, not an Xvfb screenshot or metadata-only assertion.
+
+Published v0.3.2 passed both identity paths on 2026-10-06. The released AppImage
+also repaired an exact v0.3.1 launcher in the isolated managed installation, proving
+the release-only AppImage/path checks permit the intended migration. Receipts are
+`wayland-verification.json` and `migration-verification.json` beside the standard
+public-release report. The user's per-user installation was upgraded to those same
+verified bytes without closing the existing window or modifying favorites.

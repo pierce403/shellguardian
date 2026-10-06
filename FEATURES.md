@@ -79,8 +79,9 @@ Acceptance checkboxes require evidence, not assumptions.
   - [x] Published v0.3.1 installer and native AppImage verify the icon, desktop entry,
         X11 WM_CLASS, and GTK application ID. No user favorites were changed.
         These checks missed its separate Wayland ID; the user reported a generic icon.
-  - [x] Fixed native debug build announces `bot.recurse.shellguardian` through both
-        Wayland and GTK; the X11 class matches. Current installed launchers repaired.
+  - [x] Published v0.3.2 announces `bot.recurse.shellguardian` through both Wayland
+        and GTK; the X11 class matches. Shipped older-launcher migration passed in
+        isolation. Installed the verified patch and repaired the user's launchers.
   - [ ] Live Ubuntu dock pinning/grouping verified with the packaged application.
 
 ## Agent supervision

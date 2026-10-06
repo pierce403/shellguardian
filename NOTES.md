@@ -426,3 +426,34 @@ reported WM_CLASS `bot.recurse.shellguardian`, `Bot.recurse.shellguardian` and
 matching GTK ID; SSH/mTLS lifecycle, current dark theme, unchanged OpenShell
 selection, and empty browser storage also passed. Neither metadata check claims
 visual dock acceptance. Signed patch-release verification follows below.
+
+Published signed v0.3.2 from immutable tag commit
+`6f707b3b6627a046bbc4f1fda021a4658f33d239`. Actions run `37508012678` passed all
+source checks and packaging in 12m14s. The 85,330,424-byte AppImage has SHA256
+`43da048b8bb3c1f669817943f23260a7af4ffabecf0e592c2c321a67d025dbf1`.
+Verified every advertised asset checksum and signed-version metadata, then ran
+the published installer/AppImage through real native SSH/mTLS lifecycle, dark
+theme, X11 identity, and actual Wayland protocol tests. The shipped binary also
+repaired an exact v0.3.1 launcher in the isolated managed install, restoring its
+absolute icon, canonical class, and hidden alias. Receipts are retained under
+`.cache/public-release-0.3.2/`.
+
+Installed the exact published v0.3.2 bytes into the user's existing per-user path,
+without closing their app or tunnels. The installer retained v0.3.1 as
+`ShellGuardian.previous.AppImage`; both hashes match their published releases.
+Both installed desktop entries validate. Reopening the current app and observing
+the actual dock remain the last user-session check; no GNOME favorites changed.
+
+The static release listing was deployed from pushed commit
+`941ad52ec5646f71543fcb6131380fa1c87ad8e7`, Cloudflare Worker version
+`7ff9f552-e7b9-40cf-ae58-c32aa362f847`, with strict conflict checking. Only the
+HTML asset changed. Public HTML matches source with SHA256
+`044f658c2af6a8573f81759741a0ac98fadba797ce03bdfe855c0efd2e0fe6e4`.
+Installer and update-manifest redirects return the v0.3.2 release bytes.
+
+GitHub's new moderate Dependabot alert #2 targets the newly direct GLib 0.18
+declaration, GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429. It is the existing documented
+backport: inspected fixed `VariantStrIter` pointer arguments and Cargo's locked
+resolution to `vendor/glib` for both the app and GTK. No new issue or release
+blocker was found. The alert remains open; no dismissal or dependency change was
+performed as part of this icon fix.
