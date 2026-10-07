@@ -33,9 +33,9 @@
           <p class="lead">A desktop control room for NVIDIA OpenShell agents.</p>
           <p class="description">
             ShellGuardian is a Tauri app that makes agent access easier to understand and manage.
-            Run it on your computer to inspect sandbox policies, review provider attachments, and
-            connect through your installed OpenShell CLI to registered gateways on localhost, your
-            local network, or remote systems.
+            Run it on your computer to inspect sandbox policies, review provider attachments, talk
+            to an interactive agent, or open a terminal inside its sandbox. Connect through your
+            installed OpenShell CLI to gateways on localhost, your local network, or remote systems.
           </p>
           <p class="ownership">
             OpenShell owns credentials, agent state, authentication, and enforcement. ShellGuardian
@@ -51,14 +51,14 @@
         </div>
         <aside class="latest-card" aria-label="Current release">
           <span class="badge">LINUX PREVIEW</span>
-          <h2>v0.3.2</h2>
+          <h2>v0.4.0</h2>
           <p>Released <time datetime="2026-10-06">October 6, 2026</time></p>
           <a
             class="button primary"
-            href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/ShellGuardian_0.3.2_amd64.AppImage"
+            href="https://github.com/pierce403/shellguardian/releases/download/v0.4.0/ShellGuardian_0.4.0_amd64.AppImage"
             >Download AppImage</a
           >
-          <p class="file-note">Linux x86_64 · 85.3 MB</p>
+          <p class="file-note">Linux x86_64</p>
           <a href="#releases">Release notes and checksums</a>
         </aside>
       </section>
@@ -75,7 +75,8 @@
             <h3>Inspect access</h3>
             <p>
               Read effective and base policies, inspect filesystem and network boundaries, and see
-              which credential providers are attached. Credential values stay out of the interface.
+              which credential providers are attached. Provider panels show metadata, never
+              credential values. Interactive terminal output can contain sensitive information.
             </p>
           </article>
           <article>
@@ -100,6 +101,22 @@
             </p>
           </article>
           <article>
+            <h3>Talk to your agent</h3>
+            <p>
+              Attach to the sandbox's existing main process. If it is an interactive agent, talk to
+              it in its own terminal interface. Detach without stopping the agent. This is not a
+              separate chat service or a new model conversation.
+            </p>
+          </article>
+          <article>
+            <h3>Open a full terminal</h3>
+            <p>
+              Start a separate interactive shell inside the selected sandbox, not on your host.
+              Inspect files or run commands within OpenShell's boundaries. Session output stays in
+              memory, with no ShellGuardian transcript archive.
+            </p>
+          </article>
+          <article>
             <h3>Follow your OS</h3>
             <p>
               Light and dark appearance follow your system settings, including changes while the app
@@ -115,10 +132,11 @@
           </article>
         </div>
         <p class="notice">
-          <strong>Early preview.</strong> Native read-only connections, signed app updates, and SSH
-          transport through a local test server are verified. Live sandbox mutations and physical
-          remote-host acceptance remain open. Inference-token totals, credential-use counters, and
-          CPU/memory usage are unavailable in the inspected OpenShell 0.1.2 CLI.
+          <strong>Early preview.</strong> Interactive sessions use OpenShell's existing attach and
+          sandbox-shell commands, including session SSH connections. Physical remote-host
+          interactive acceptance and full policy/lifecycle mutation acceptance remain open.
+          Inference-token totals, credential-use counters, and CPU/memory usage are unavailable in
+          the inspected OpenShell 0.1.2 CLI.
           <a href="https://github.com/pierce403/shellguardian/blob/main/FEATURES.md"
             >Read the acceptance status.</a
           >
@@ -193,7 +211,7 @@
           <pre class="plain-command"><code>task_dir=$(mktemp -d)
 curl -fsSL https://shellguardian.org/install.sh -o "$task_dir/install.sh"
 less "$task_dir/install.sh"
-bash "$task_dir/install.sh" --version 0.3.2</code></pre>
+bash "$task_dir/install.sh" --version 0.4.0</code></pre>
           <p>
             <a href="https://github.com/pierce403/shellguardian/blob/main/install.sh"
               >Read the installer source</a
@@ -226,27 +244,27 @@ bash "$task_dir/install.sh" --version 0.3.2</code></pre>
             <p>Versioned downloads, release notes, and verification files.</p>
           </div>
         </div>
-        <article class="release-entry" aria-labelledby="release-032">
+        <article class="release-entry" aria-labelledby="release-040">
           <div class="release-heading">
             <div>
-              <h3 id="release-032">v0.3.2 <span class="badge">LATEST · PREVIEW</span></h3>
+              <h3 id="release-040">v0.4.0 <span class="badge">LATEST · PREVIEW</span></h3>
               <p><time datetime="2026-10-06">October 6, 2026</time> · Linux x86_64</p>
             </div>
-            <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.3.2"
+            <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.4.0"
               >Full release notes</a
             >
           </div>
           <ul class="release-notes">
-            <li>Aligns Wayland and X11 window identities with the Ubuntu launcher.</li>
-            <li>Resolves the shield icon directly and repairs managed launchers before opening.</li>
-            <li>
-              Close and reopen after updating. Custom launchers and dock favorites stay yours.
-            </li>
+            <li>Talk to an interactive agent by attaching its existing main process.</li>
+            <li>Open a separate sandbox shell with terminal input, ANSI output, and resizing.</li>
+            <li>Keep each session bound to its gateway, workspace, sandbox, and SSH connection.</li>
+            <li>Detach explicitly; session output stays in memory and follows your OS theme.</li>
+            <li>Bound input and output buffers; block terminal clipboard and hyperlink escapes.</li>
           </ul>
           <div class="download-table">
             <table>
               <caption>
-                v0.3.2 release files
+                v0.4.0 release files
               </caption>
               <thead>
                 <tr>
@@ -258,16 +276,16 @@ bash "$task_dir/install.sh" --version 0.3.2</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/ShellGuardian_0.3.2_amd64.AppImage"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.4.0/ShellGuardian_0.4.0_amd64.AppImage"
                       >Linux x86_64 AppImage</a
                     >
                   </th>
-                  <td>Desktop application · 85.3 MB</td>
+                  <td>Desktop application</td>
                 </tr>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/install.sh"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.4.0/install.sh"
                       >install.sh</a
                     >
                   </th>
@@ -276,7 +294,7 @@ bash "$task_dir/install.sh" --version 0.3.2</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/SHA256SUMS"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.4.0/SHA256SUMS"
                       >SHA256SUMS</a
                     >
                   </th>
@@ -285,7 +303,7 @@ bash "$task_dir/install.sh" --version 0.3.2</code></pre>
                 <tr>
                   <th scope="row">
                     <a
-                      href="https://github.com/pierce403/shellguardian/releases/download/v0.3.2/ShellGuardian_0.3.2_amd64.AppImage.sig"
+                      href="https://github.com/pierce403/shellguardian/releases/download/v0.4.0/ShellGuardian_0.4.0_amd64.AppImage.sig"
                       >AppImage signature</a
                     >
                   </th>
@@ -295,10 +313,14 @@ bash "$task_dir/install.sh" --version 0.3.2</code></pre>
             </table>
           </div>
           <p class="release-source">
-            <a href="https://github.com/pierce403/shellguardian/tree/v0.3.2">Source at v0.3.2</a> ·
-            <a href="https://github.com/pierce403/shellguardian/commits/v0.3.2">Changelog</a>
+            <a href="https://github.com/pierce403/shellguardian/tree/v0.4.0">Source at v0.4.0</a> ·
+            <a href="https://github.com/pierce403/shellguardian/commits/v0.4.0">Changelog</a>
           </p>
         </article>
+        <p class="release-history">
+          <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.3.2">v0.3.2</a>
+          · Consistent Wayland/X11 app identity and managed Ubuntu launcher icon repair.
+        </p>
         <p class="release-history">
           <a href="https://github.com/pierce403/shellguardian/releases/tag/v0.3.1">v0.3.1</a>
           · Session SSH tunnels, OS light/dark appearance, and initial Ubuntu launcher integration.

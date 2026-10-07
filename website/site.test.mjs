@@ -39,6 +39,16 @@ for (const file of [
 assert.match(html, /This website only\s+provides project information and downloads/);
 assert.match(html, /Static screenshot with sample agents/);
 assert.match(html, /Automatic updates are on by default/);
+assert.match(html, /Talk to your agent/);
+assert.match(html, /sandbox's existing main process/);
+assert.match(html, /separate interactive shell inside the selected sandbox, not on your host/);
+assert.match(html, /Provider panels show metadata, never\s+credential values/);
+assert.match(html, /Interactive terminal output can contain sensitive information/);
+assert.match(html, /Session\s+output\s+stays\s+in\s+memory/);
+assert.ok(
+  links.includes(`${repo}/releases/tag/v0.3.2`),
+  'Keep the prior launcher fix in release history',
+);
 assert.match(html, /OpenShell upgrades remain\s+separate and explicit/);
 assert.doesNotMatch(html, /\u2014/);
 assert.match(html, /id="copy-install"[^>]*\bhidden/);
