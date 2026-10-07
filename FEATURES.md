@@ -131,8 +131,10 @@ Acceptance checkboxes require evidence, not assumptions.
     excluded from direct execution), and 33 browser checks on 2026-10-06.
     `scripts/native-interaction-smoke.mjs` verifies actual WebKit keyboard input,
     canonical-main replies, independent shell commands, ANSI rendering, and TTY size.
-  - Remaining: signed release acceptance and an interactive session across a
-    physical remote host; neither the sample workload nor Ready proves an AI agent.
+  - [x] Published v0.4.0 AppImage passes the same native interaction and SSH
+        acceptance; its exact verified bytes are installed in the user's existing path.
+  - Remaining: an interactive session across a physical remote host; neither the
+    sample workload nor Ready proves an AI agent.
 
 ## Policies and credential access
 

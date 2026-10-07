@@ -514,3 +514,41 @@ continue, and transport errors/timeouts are not a remote-PID acknowledgement.
 Documentation now distinguishes closing a terminal connection from stopping a
 sandbox. Our native acceptance proves local owned CLI/SSH cleanup and preserved
 main-process replies, not universal teardown of remote descendant processes.
+
+Published signed v0.4.0 from immutable tag commit
+`8371f0c7921f6064a0cd376ac8e059d6b08214fb`; Actions run `37553287327` passed.
+The 85,547,512-byte AppImage has SHA256
+`291b9c37a931c49490b612135a06e9b048ba11914668b7b1703be70af6524292`.
+All advertised checksums, version-bound signature metadata, isolated installation,
+desktop entries, and native SSH/mTLS lifecycle checks passed. The published
+AppImage also passed the full native interaction harness: main replies and safe
+detach, independent shell, ANSI and TTY size, both modes over SSH, live-PTY
+disconnect, stale IDs, normal close, and disappearance of owned local processes.
+Receipts and screenshots are under `.cache/public-release-0.4.0/`. Physical remote
+interactive sessions and the actual user's rendered dock remain unverified.
+
+Installed those exact published bytes in the existing per-user install without
+closing the user's app or tunnels. The rollback image matches published v0.3.2
+SHA256 `43da048b8bb3c1f669817943f23260a7af4ffabecf0e592c2c321a67d025dbf1`.
+Both installed desktop entries validate. Reopen the existing app to use v0.4.0.
+
+Published only the static website from pushed commit
+`3489286421c243d31964d161b05fa9c5ccc98e77`, Cloudflare Worker version
+`c6ca54b0-c6f1-4296-81a4-bc186369caae`. Strict conflict checking passed; only
+`index.html` changed, with no gateway/backend service added. Public HTML matches
+source SHA256 `ea180aa2b7edde5a5ee06e771c1a0473c87eb5f59d6ab1a737ac5e2c556da32e`.
+HTTP redirects preserve path/query; public installer and update-manifest bytes
+match the v0.4.0 release. Local desktop/mobile rendering passed with JavaScript
+both enabled and disabled before deployment.
+
+Public rendered acceptance then passed at desktop 1440px and mobile 430px: all
+eight feature cards, both interaction descriptions, release information, loaded
+preview image, no horizontal overflow or browser errors. All seven checked
+v0.4.0 GitHub release/download/source links returned HTTP 200. Evidence is under
+`.cache/website-0.4.0/public/`.
+
+After published acceptance, rechecked the disposable sandbox's exact ID and
+ownership label, deleted only `sg-term-1006-a`, and confirmed the local gateway
+inventory was empty again. Removed its temporary CLI metadata symlink and empty
+directories without following the symlink or changing credentials. No user data,
+existing agents, providers, or paid inference were involved.
