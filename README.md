@@ -68,9 +68,11 @@ OpenShell's policies. The workload image must contain `/bin/sh`.
 
 Both panes show their gateway/workspace and use the selected SSH connection when
 applicable. Input goes directly to the process, including Ctrl+C. Closing a
-terminal ends that shell session; changing scope or quitting closes the local
-connections. Output and scrollback stay in memory and can include sensitive text
-you ask the sandbox to print. OpenShell owns its existing agent state and history.
+terminal ends its connection and asks OpenShell to terminate that exec session;
+background or detached jobs may continue. This does not stop the sandbox.
+Changing scope or quitting closes the local connections. Output and scrollback
+stay in memory and can include sensitive text you ask the sandbox to print.
+OpenShell owns its existing agent state and history.
 
 ### Development
 

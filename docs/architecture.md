@@ -110,8 +110,11 @@ An interaction holds its SSH lease until the owned CLI process is cleaned up.
 Tunnel disconnect closes matching PTYs first; exit closes all PTYs before SSH.
 Explicit agent detach sends Ctrl-P Ctrl-Q, then stops only the owned local
 transport if needed. It never sends Ctrl-C or `exit` to the agent. Closing an
-independent terminal ends that exec session. Normal typing still has its normal
-terminal meaning, including the ability to interrupt or exit a process.
+independent terminal ends its connection and asks OpenShell to terminate that
+exec session; background jobs in separate process groups may continue. Remote
+cleanup is not acknowledged when the transport fails. This does not stop the
+sandbox. Normal typing still has its normal terminal meaning, including the
+ability to interrupt or exit a process.
 
 The terminal necessarily displays what a user asks their sandbox to print, which
 may include sensitive text. Unlike the bounded/redacted activity view, it is a

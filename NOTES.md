@@ -506,3 +506,11 @@ signalling already-exited/reaped process-group leaders. Opening a PTY precedes
 the upstream handshake, so the UI asks users to wait for their actual prompt.
 No existing agents or paid inference were used. Signed release acceptance and
 disposable fixture removal are recorded after publication below.
+
+Final upstream cleanup review qualified the remote boundary: dropping interactive
+exec asks the gateway to close its internal SSH channel; supervisor cleanup kills
+the original exec process group. Jobs in separate groups or detached sessions can
+continue, and transport errors/timeouts are not a remote-PID acknowledgement.
+Documentation now distinguishes closing a terminal connection from stopping a
+sandbox. Our native acceptance proves local owned CLI/SSH cleanup and preserved
+main-process replies, not universal teardown of remote descendant processes.

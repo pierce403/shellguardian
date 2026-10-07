@@ -107,3 +107,14 @@ Sources: [attachment semantics](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/
 [CLI interactive exec](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-cli/src/run.rs),
 [main attachment](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-cli/src/ssh.rs),
 [endpoint resolution](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-core/src/forward.rs).
+
+Independent exec closure is not a sandbox-stop or full process-tree guarantee.
+The gateway handles a dropped response by closing the internal SSH channel;
+the supervisor terminates non-main exec through the original exec process group.
+Background jobs in other process groups or detached sessions can remain. Remote
+close/disconnect cleanup has short timeouts and is not acknowledged to this UI,
+so transport failure must not be presented as proof every remote process exited.
+Main attachment follows a separate detach-only path. See
+[gateway exec cancellation](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-server/src/grpc/sandbox.rs),
+[supervisor channel closure](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-supervisor-process/src/ssh.rs),
+and [process-group termination](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-sandbox/src/boundary_exec.rs).
