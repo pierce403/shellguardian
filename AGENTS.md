@@ -19,8 +19,11 @@ focused milestones. Do not disturb existing agents to test the application.
   Tauri's app config directory. It defaults on; unreadable preferences fail closed.
   Gateway selection, SSH sessions, and detected appearance remain in memory.
 - Invoke installed `openshell` and `ssh` executables from Rust with validated,
-  fixed argument arrays. Never execute a shell or expose arbitrary command
-  execution over IPC.
+  fixed argument arrays. Never execute a host shell or expose arbitrary local
+  command execution over IPC. User-requested agent/terminal sessions may attach
+  the sandbox main process or start a fixed `/bin/sh -i` inside that sandbox
+  through OpenShell. Their typed IPC accepts only scope, name, mode, dimensions,
+  and input for an already-owned PTY; never a host program, path, or environment.
 - Reuse OpenShell's registered gateways and authentication. Scope each request
   explicitly to its gateway and workspace. Changing the UI selection must not
   change OpenShell's active gateway.
@@ -30,6 +33,9 @@ focused milestones. Do not disturb existing agents to test the application.
   access for a dead/stale session ID. Keep operation leases through whole bridge
   operations; normal disconnect waits, while app exit kills and reaps owned SSH
   children after mutation/setup guards permit exit. Never persist SSH sessions.
+  Interactive PTYs retain their transport lease until cleanup. Close matching
+  PTYs before waiting for tunnel disconnect, and close all PTYs before app exit.
+  Agent detach sends OpenShell's Ctrl-P Ctrl-Q escape, never Ctrl-C or `exit`.
 - Follow OS appearance using native theme events with media-query fallback; do
   not add a saved theme preference. Keep Ubuntu desktop ID, GTK application ID,
   and GLib program name aligned: GTK 3 uses the latter for Wayland's app ID.
@@ -39,6 +45,10 @@ focused milestones. Do not disturb existing agents to test the application.
   Keep the old Wayland ID's compatibility launcher hidden from application menus.
 - Keep credentials out of the webview, logs, errors, fixtures, and repository.
   Read provider summaries and attachment metadata only, never credential values.
+  The explicit interactive-terminal exception displays sandbox output requested
+  by the user, which can contain secrets. Never log or persist it, automatically
+  retrieve credentials, or enable terminal clipboard/file/link escape actions.
+  Bound PTY buffers and emulator scrollback in memory and apply backpressure.
 - Display unavailable measurements as unavailable, never as zero. Sandbox state
   is not proof of an agent process running. CPU/memory limits are not usage.
 - Apply policies and provider changes through OpenShell and report its result.

@@ -102,6 +102,38 @@ Acceptance checkboxes require evidence, not assumptions.
   - [x] Rust tests verify lifecycle argument arrays and invalid target rejection.
   - [ ] Native start/stop verified against a disposable authorized sandbox.
 
+## Agent interaction and full terminal
+
+- **Stability**: in-progress
+- **Description**: Interact with a sandbox's existing agent and open an independent shell.
+- **Properties**:
+  - Talk to agent attaches OpenShell's canonical main process. If that process is
+    not an interactive agent, explain the limitation instead of synthesizing chat.
+  - Open terminal starts a separate `/bin/sh -i` inside the selected Ready sandbox.
+    No arbitrary host command, shell, environment, or endpoint crosses IPC.
+  - Show the captured gateway/workspace/sandbox/SSH session and close on scope changes.
+  - Support terminal input, ANSI output, resizing, live OS theme, and bounded
+    memory-only scrollback. No persistent conversation store or telemetry upload.
+  - Agent detach does not interrupt its main process. Tunnel disconnect and app
+    exit clean up owned local PTYs before their SSH transports.
+  - Disable terminal-driven clipboard, file, and hyperlink actions; bound queues
+    and apply output backpressure. Missing/stale IDs never fall back to direct access.
+- **Dependencies**: OpenShell 0.1.2 connect/exec, Linux PTY, xterm.js, session transport.
+- **Test Criteria**:
+  - [x] Bridge tests enforce fixed commands, live readiness, valid scope, stale-ID rejection.
+  - [x] Native PTY tests verify input/output/resize, bounded buffers, detach, and cleanup.
+  - [x] Browser tests verify session scoping, errors, theme, keyboard, and late-open cleanup.
+  - [x] Native UI verified against an isolated no-credential/no-inference sandbox.
+  - [x] Interactive sessions accepted through a private loopback SSH test server,
+        including live-PTY disconnect, stale-ID rejection, normal window close,
+        and disappearance of owned CLI/SSH processes. No existing agents changed.
+  - Evidence: 42 bridge tests, 34 native tests (one child helper is deliberately
+    excluded from direct execution), and 33 browser checks on 2026-10-06.
+    `scripts/native-interaction-smoke.mjs` verifies actual WebKit keyboard input,
+    canonical-main replies, independent shell commands, ANSI rendering, and TTY size.
+  - Remaining: signed release acceptance and an interactive session across a
+    physical remote host; neither the sample workload nor Ready proves an AI agent.
+
 ## Policies and credential access
 
 - **Stability**: in-progress

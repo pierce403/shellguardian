@@ -37,6 +37,7 @@ import {
 import * as api from './api';
 import AppUpdates, { useAppUpdates } from './AppUpdates';
 import SshConnections, { useSshConnections } from './SshConnections';
+import AgentTerminal from './AgentTerminal';
 import type {
   Agent,
   AgentDetail,
@@ -50,6 +51,8 @@ import type {
   UpdateInfo,
   AppUpdateStatus,
   SshConnection,
+  AgentTerminalTarget,
+  TerminalKind,
 } from './types';
 
 type Page = 'overview' | 'agents' | 'credentials' | 'activity' | 'openshell';
@@ -479,6 +482,7 @@ function AgentDrawer({
   onRequest,
   refreshRevision,
   mutationBusy,
+  onInteract,
 }: {
   agent: Agent;
   scope: Scope;
@@ -488,6 +492,7 @@ function AgentDrawer({
   onRequest: (action: Pending) => void;
   refreshRevision: number;
   mutationBusy: boolean;
+  onInteract: (kind: TerminalKind) => void;
 }) {
   const [detail, setDetail] = useState<AgentDetail | null>(null);
   const [tab, setTab] = useState<DetailTab>(initialTab);
@@ -651,6 +656,24 @@ function AgentDrawer({
       </div>
       <div className="drawer-created">
         Created <time>{currentAgent.created_at || 'Not reported'}</time>
+      </div>
+      <div className="drawer-actions">
+        <button
+          className="button primary"
+          onClick={() => onInteract('agent')}
+          disabled={mutationBusy || loading || !ready(currentAgent.phase)}
+        >
+          <Bot size={15} />
+          Talk to agent
+        </button>
+        <button
+          className="button"
+          onClick={() => onInteract('terminal')}
+          disabled={mutationBusy || loading || !ready(currentAgent.phase)}
+        >
+          <Terminal size={15} />
+          Open terminal
+        </button>
       </div>
       <div className="drawer-actions">
         <button
@@ -1067,6 +1090,7 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('all');
   const [selectedAgent, setSelectedAgent] = useState<{ agent: Agent; tab: DetailTab } | null>(null);
+  const [terminalTarget, setTerminalTarget] = useState<AgentTerminalTarget | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [mutationBusy, setMutationBusy] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -1109,6 +1133,7 @@ export default function App() {
   }, [toast]);
   useEffect(() => {
     setSelectedAgent(null);
+    setTerminalTarget(null);
     setPending(null);
     setMutationError(null);
   }, [selection.gateway, selection.workspace, selection.connectionId]);
@@ -1711,7 +1736,13 @@ export default function App() {
           onRequest={request}
           refreshRevision={detailRevision}
           mutationBusy={mutationBusy}
+          onInteract={(kind) =>
+            setTerminalTarget({ scope: { ...data.scope! }, name: selectedAgent.agent.name, kind })
+          }
         />
+      )}
+      {terminalTarget && (
+        <AgentTerminal target={terminalTarget} onClose={() => setTerminalTarget(null)} />
       )}
       {pending && (
         <Modal

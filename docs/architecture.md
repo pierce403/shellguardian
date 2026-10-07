@@ -14,8 +14,8 @@ from Tauri so its command contracts can be tested without GUI libraries.
 | Tauri window              | Display snapshots, collect user choices, review and request explicit actions   |
 | Tauri updater             | Verify signed app packages and versions; install without changing OpenShell    |
 
-The webview cannot execute an arbitrary command or read credential files. IPC
-exposes sixteen typed commands. Production CSP restricts network access to the
+The webview cannot execute an arbitrary host command or read host credential files.
+IPC exposes typed commands. Production CSP restricts network access to the
 Tauri IPC channel. OpenShell release checks contact the fixed NVIDIA endpoint;
 app updates use the fixed ShellGuardian GitHub stable-release channel and signed
 assets. Neither accepts frontend-controlled endpoints or trust keys.
@@ -70,7 +70,7 @@ introduced. SSH configuration remains trusted local-user configuration.
 
 Start/stop, provider attach/detach, and policy application require a review dialog
 showing the sandbox, gateway and workspace. The backend validates names and uses
-fixed arguments; it never launches a shell. It explicitly removes environment
+fixed arguments; it never launches a host shell. It explicitly removes environment
 overrides that could redirect a scoped request to another gateway.
 
 Provider/policy changes request OpenShell acknowledgement. Policy application
@@ -89,6 +89,35 @@ before another attempt instead of automatically retrying an uncertain mutation.
 The process runner bounds stdout/stderr, closes stdin, and kills a pending CLI
 process on cancellation/timeout. CLI-spawned descendants are not independently
 managed by ShellGuardian.
+
+## Agent sessions and terminals
+
+User-selected interactive sessions are a separate, explicit sandbox-I/O path.
+The native process is always `openshell`, with bridge-validated fixed arguments:
+attach the existing main process or run `/bin/sh -i` inside that sandbox. It is
+not arbitrary local execution and does not create a second conversation service.
+The pane shows its captured gateway, workspace, sandbox, and SSH connection;
+changing selection closes it instead of retargeting input.
+
+Linux native PTYs carry raw bytes and resize events. Opaque session IDs belong to
+the main window. Native memory limits cover session count, queued input, and
+output; bounded read frames feed the emulator only after its previous render
+callback completes. Scrollback is memory-only. OSC clipboard and hyperlink
+requests are consumed without action; no clipboard, URL, or file-opening addon
+is enabled. Terminal output is untrusted data, never application markup.
+
+An interaction holds its SSH lease until the owned CLI process is cleaned up.
+Tunnel disconnect closes matching PTYs first; exit closes all PTYs before SSH.
+Explicit agent detach sends Ctrl-P Ctrl-Q, then stops only the owned local
+transport if needed. It never sends Ctrl-C or `exit` to the agent. Closing an
+independent terminal ends that exec session. Normal typing still has its normal
+terminal meaning, including the ability to interrupt or exit a process.
+
+The terminal necessarily displays what a user asks their sandbox to print, which
+may include sensitive text. Unlike the bounded/redacted activity view, it is a
+faithful interactive byte stream. It is never persisted, uploaded, or logged by
+ShellGuardian. OpenShell retains ownership of its own main-process output and
+last-used-sandbox metadata. See [the inspected contract](openshell-contract.md).
 
 ## Credentials and telemetry
 

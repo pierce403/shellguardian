@@ -13,6 +13,9 @@ import type {
   AppUpdateStatus,
   SshConnectRequest,
   SshConnection,
+  AgentTerminalTarget,
+  AgentTerminalSession,
+  AgentTerminalRead,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
@@ -223,4 +226,34 @@ export async function disconnectSsh(connectionId: string): Promise<void> {
     return;
   }
   return invoke('disconnect_ssh_gateway', { connectionId });
+}
+
+export async function openAgentTerminal(
+  target: AgentTerminalTarget,
+  cols: number,
+  rows: number,
+): Promise<AgentTerminalSession> {
+  if (previewMode || !desktopMode)
+    throw new Error('Interactive sessions require the desktop app and a live OpenShell sandbox.');
+  return invoke('open_agent_terminal', { ...target, cols, rows });
+}
+
+export async function readAgentTerminal(sessionId: string): Promise<AgentTerminalRead> {
+  return invoke('read_agent_terminal', { sessionId });
+}
+
+export async function writeAgentTerminal(sessionId: string, data: string): Promise<void> {
+  return invoke('write_agent_terminal', { sessionId, data });
+}
+
+export async function resizeAgentTerminal(
+  sessionId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  return invoke('resize_agent_terminal', { sessionId, cols, rows });
+}
+
+export async function closeAgentTerminal(sessionId: string): Promise<void> {
+  return invoke('close_agent_terminal', { sessionId });
 }

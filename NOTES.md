@@ -457,3 +457,52 @@ backport: inspected fixed `VariantStrIter` pointer arguments and Cargo's locked
 resolution to `vendor/glib` for both the app and GTK. No new issue or release
 blocker was found. The alert remains open; no dismissal or dependency change was
 performed as part of this icon fix.
+
+## 2026-10-06: in-app agent sessions and sandbox terminals
+
+The user requested direct agent interaction and a full terminal. Inspected the
+installed OpenShell 0.1.2 help and official tag source. There is no generic chat
+RPC: `sandbox connect NAME` attaches the existing canonical main process, while
+`sandbox exec --name NAME --tty -- /bin/sh -i` opens a separate shell. Both run
+through a real native PTY and retain explicit gateway/workspace/SSH scope.
+OpenShell may update its own last-used-sandbox cursor; the app stores no history.
+
+Added wide, OS-themed xterm panes, keyboard input, byte-preserving output, resize,
+bounded in-memory scrollback, and explicit detach/close. Agent detach sends
+Ctrl-P Ctrl-Q instead of interrupting or exiting the agent. Disabled OSC clipboard
+and hyperlink actions. PTY commands use only fixed native arguments, remove
+inherited gateway/TLS overrides, and are owned by the main window. Limits cover
+session count, output frames, queued input, and five-second input backpressure.
+A busy write warns about potentially partial input without closing the session.
+
+Review/testing caught React StrictMode launching twice, late-open cleanup, stale
+close retries, and a close-versus-app-exit race. Deferred the development mount's
+open, made close idempotent, and made shutdown wait for every worker slot including
+already-unregistered closing sessions. Tunnel disconnect closes PTYs before
+waiting for SSH leases. Workers kill/reap only their owned local process groups.
+
+Verified 42 bridge tests, 34 native tests plus one intentionally ignored subprocess
+helper, all-target Clippy, formatting/typecheck/build, 33 browser checks, and 12
+installer checks. The first restricted dependency fetches failed DNS resolution;
+authorized network fetches succeeded. Existing vendored GLib warnings remain
+unchanged. Bundling xterm increases the main frontend chunk to about 639 kB;
+Vite emits its size warning, not a functional build failure.
+
+Provisioned only `sg-term-1006-a` (ID
+`23579418-0814-4691-b125-2e74dcc26b5a`), marked
+`managed-by=shellguardian-terminal-smoke`, using cached Alpine 3.23, 500m CPU,
+512 MiB memory, default-deny network policy, no providers, no uploads, and a
+fixed read/reply main process. Initial longer name failed the upstream 19-character
+limit without creating a resource. Test metadata is isolated from the user's
+OpenShell cursor and preferences; only a temporary mTLS-directory symlink is used.
+
+Actual Tauri/WebKit acceptance reached that main process via keyboard, received
+its nonce reply, detached without stopping it, opened an independent shell,
+confirmed `/sandbox`, real terminal dimensions and ANSI color, and repeated both
+modes through a private OpenSSH fixture. Live-PTY disconnect, stale-ID rejection,
+normal WM_DELETE close, and owned CLI/SSH PID/start-time disappearance passed.
+The harness was strengthened to inspect children of every app thread and to avoid
+signalling already-exited/reaped process-group leaders. Opening a PTY precedes
+the upstream handshake, so the UI asks users to wait for their actual prompt.
+No existing agents or paid inference were used. Signed release acceptance and
+disposable fixture removal are recorded after publication below.

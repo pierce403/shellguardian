@@ -100,3 +100,20 @@ export interface SshConnection extends SshConnectRequest {
   status: 'connected' | 'disconnected';
   error: string | null;
 }
+
+export type TerminalKind = 'agent' | 'terminal';
+export interface AgentTerminalTarget {
+  scope: Scope;
+  name: string;
+  kind: TerminalKind;
+}
+export interface AgentTerminalSession {
+  id: string;
+  kind: TerminalKind;
+}
+export interface AgentTerminalRead {
+  data: number[];
+  exited: boolean;
+  exitCode: number | null;
+  error: string | null;
+}

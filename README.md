@@ -4,7 +4,8 @@ A Tauri desktop control room for NVIDIA OpenShell agents. [shellguardian.org](ht
 
 Inspect agent access,
 control sandbox lifecycle, manage provider attachments, review network policies,
-and check the installed OpenShell version and official release status.
+talk to an interactive agent, open a sandbox terminal, and check the installed
+OpenShell version and official release status.
 
 OpenShell owns the state, credentials, authentication, and enforcement.
 ShellGuardian has no database, service daemon, or persistent browser storage.
@@ -53,6 +54,23 @@ for the tunnel endpoint; a `localhost` DNS SAN alone is insufficient.
 Connections exist only for the current app session. Disconnect waits for active
 operations; closing the app stops its SSH processes. A failed connection remains
 disconnected until you reconnect, with no fallback to a different gateway.
+
+### Talk to an agent or open a terminal
+
+Inspect a Ready sandbox, then choose **Talk to agent** or **Open terminal**.
+The agent pane attaches its existing main process through OpenShell. An
+interactive agent presents its own interface; a shell or headless workload does
+not become a chat bot. **Detach agent** leaves that main process running.
+
+The terminal opens a separate `/bin/sh -i` inside the same sandbox, not on your
+host. You can inspect files, run commands, and use terminal programs subject to
+OpenShell's policies. The workload image must contain `/bin/sh`.
+
+Both panes show their gateway/workspace and use the selected SSH connection when
+applicable. Input goes directly to the process, including Ctrl+C. Closing a
+terminal ends that shell session; changing scope or quitting closes the local
+connections. Output and scrollback stay in memory and can include sensitive text
+you ask the sandbox to print. OpenShell owns its existing agent state and history.
 
 ### Development
 

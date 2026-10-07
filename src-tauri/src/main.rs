@@ -9,7 +9,9 @@ mod app_updates;
 mod desktop_integration;
 mod preferences;
 mod ssh_connections;
+mod terminal_sessions;
 use app_updates::AppUpdates;
+use terminal_sessions::TerminalSessions;
 
 fn bridge() -> Bridge<ProcessRunner> {
     Bridge::new(ProcessRunner::default())
@@ -149,10 +151,16 @@ fn main() {
             app_updates::restart_for_update,
             ssh_connections::connect_ssh_gateway,
             ssh_connections::get_ssh_connections,
-            ssh_connections::disconnect_ssh_gateway
+            ssh_connections::disconnect_ssh_gateway,
+            terminal_sessions::open_agent_terminal,
+            terminal_sessions::read_agent_terminal,
+            terminal_sessions::write_agent_terminal,
+            terminal_sessions::resize_agent_terminal,
+            terminal_sessions::close_agent_terminal
         ])
         .setup(|app| {
             app.manage(SshConnections::default());
+            app.manage(TerminalSessions::default());
             let window = app
                 .get_webview_window("main")
                 .expect("configured main window");
@@ -172,6 +180,7 @@ fn main() {
         .expect("could not build ShellGuardian")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                tauri::async_runtime::block_on(app.state::<TerminalSessions>().shutdown());
                 tauri::async_runtime::block_on(app.state::<SshConnections>().shutdown());
             }
         });

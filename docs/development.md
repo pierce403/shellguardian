@@ -146,6 +146,37 @@ SHA256 `108256262b0fb7bb8eddd92e87230f775c90eb321413e8789754b3509f7b55c6`.
 Physical separate-host/network acceptance and native live OS setting changes
 remain separate from this loopback transport and current-theme acceptance.
 
+## Native agent and terminal acceptance
+
+`scripts/native-interaction-smoke.mjs` accepts an explicit disposable `sg-term-*`
+sandbox, requires its exact `managed-by=shellguardian-terminal-smoke` label, and
+never creates, deletes, or stops a sandbox itself. Provision an isolated fixture
+with no providers or inference using a locally cached shell image and an
+interactive main process that prints `SHELLGUARDIAN_MAIN_READY`, reads lines, and
+replies `SHELLGUARDIAN_MAIN_REPLY:<line>`. OpenShell names are limited to 19
+characters. Do not point this test at an existing agent.
+
+```bash
+node scripts/native-interaction-smoke.mjs target/debug/shellguardian sg-term-1006-a
+```
+
+The harness owns private Xvfb, WebDriver, and SSH fixture processes. It supplies a
+private `XDG_CONFIG_HOME` and reads gateway registrations through OpenShell's
+system-directory fallback. A symlink to only the existing mTLS directory is
+needed because 0.1.2 still resolves its certificates under user XDG; credentials
+are never copied or printed. Last-used-sandbox writes stay in the private tree.
+Set `SHELLGUARDIAN_FIXTURE_GATEWAYS` for a different registered gateway directory.
+
+Acceptance covers native keyboard input reaching the retained main process,
+detach preserving it, a separate shell's real working directory and terminal
+size, colored ANSI output, both operations through SSH, disconnect while a PTY
+is open, stale-session rejection, and normal native window close. Process checks
+follow only the owned app's thread children and compare PID/start-time identities
+to prove CLI/SSH cleanup without reading command-line credentials. Native
+screenshots contain only this known non-sensitive fixture output. The test waits
+for the shell's actual prompt: opening a local PTY does not prove OpenShell has
+finished its remote attachment handshake.
+
 ## Published AppImage acceptance
 
 The public-release verifier downloads the exact version's GitHub assets, checks

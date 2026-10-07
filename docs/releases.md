@@ -15,7 +15,7 @@ For inspection first:
 ```bash
 curl -fsSL -o install.sh https://github.com/pierce403/shellguardian/releases/latest/download/install.sh
 less install.sh
-bash install.sh --version 0.3.2
+bash install.sh --version 0.4.0
 ```
 
 On Ubuntu/Debian, GTK/WebKit runtime packages are `libgtk-3-0` (or

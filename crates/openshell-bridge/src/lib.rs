@@ -4,6 +4,7 @@
 //! policy enforcement. This crate invokes only inspected CLI commands and returns
 //! presentation types. It has no database or long-lived state store.
 
+pub mod interactive;
 pub mod model;
 pub mod process;
 pub mod ssh;

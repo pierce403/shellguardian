@@ -19,6 +19,8 @@ future OpenShell releases preserve every field.
 | Provider access       | `sandbox provider attach/detach NAME PROVIDER --wait --timeout 30 --output json` | Wait for acknowledged new-process config               |
 | Apply policy          | `policy set NAME --policy FILE --wait --timeout 30`                              | OpenShell schema validation and runtime load           |
 | Recent activity       | `logs NAME -n 150 --since 1h`                                                    | Bounded human-readable log window                      |
+| Talk to agent         | `sandbox connect NAME`                                                         | Attach existing main process, not a universal chat API |
+| Independent terminal  | `sandbox exec --name NAME --tty -- /bin/sh -i`                                   | New sandbox shell through a real native PTY            |
 
 Every scoped operation prefixes `--color never --gateway NAME --workspace NAME`.
 All resource arguments are validated and requests never use `--gateway-insecure`,
@@ -74,3 +76,34 @@ tunnel, explicit disconnect, listener cleanup on normal app close, and SSH sessi
 death with no fallback to the healthy direct gateway. Active CLI registrations
 were unchanged. Physical remote-host and live agent-mutation acceptance remain
 unverified.
+
+## Interactive sessions (0.1.2)
+
+Rechecked installed help and official tag source on 2026-10-06. Both operations
+first require a live `Ready` sandbox in the exact requested scope. Ready only
+permits an attachment attempt; it does not prove a conversational agent is running.
+The CLI JSON does not expose the main command or its TTY setting. A shell main
+process remains a shell, so ShellGuardian never blindly sends a chat message.
+
+`sandbox connect` attaches the retained main process via SSH subsystem
+`openshell-main`. Existing output is replayed; one attachment owns input and
+additional attachments receive OpenShell's read-only warning. Ctrl-P followed by
+Ctrl-Q detaches without interrupting that process. The independent terminal uses
+interactive gRPC exec, and requires a real local PTY for raw input and SIGWINCH
+resize forwarding. `/bin/sh` must exist in the workload image.
+
+Both commands may update OpenShell's own `last_sandbox` cursor after exit. They do
+not change its active gateway. ShellGuardian stores no conversation, terminal
+history, or terminal preferences.
+
+For main attachment, OpenShell rewrites an advertised loopback SSH address to the
+selected gateway endpoint, allowing the supported loopback gateway topology to
+use ShellGuardian's tunnel. A non-loopback advertised SSH host is preserved by
+upstream; do not claim that arbitrary gateway topologies force every stream through
+the tunnel. Gateway TLS authentication and the outer SSH tunnel's strict host
+trust remain unchanged.
+
+Sources: [attachment semantics](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/docs/how-it-works/sandboxes/overview.mdx),
+[CLI interactive exec](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-cli/src/run.rs),
+[main attachment](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-cli/src/ssh.rs),
+[endpoint resolution](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-core/src/forward.rs).

@@ -340,7 +340,14 @@ pub struct ConnectionRunner<R = ProcessRunner> {
 }
 
 impl<R> ConnectionRunner<R> {
-    fn route(&self, args: &[String]) -> Result<Vec<String>> {
+    pub(crate) fn check_alive(&self) -> Result<()> {
+        match &self.lease {
+            Some(lease) => lease.connection.check_alive(),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn route(&self, args: &[String]) -> Result<Vec<String>> {
         let Some(lease) = &self.lease else {
             return Ok(args.to_vec());
         };
