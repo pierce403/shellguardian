@@ -14,5 +14,6 @@
   },
   "overrides": {
     "sharp": "0.35.5"
-  }
+  },
+  "license": "Apache-2.0"
 }
