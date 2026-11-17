@@ -120,3 +120,7 @@ behavior. The guide at https://recurse.bot informed these conventions.
 - `npm run test:installer` tests mocked downloads and failure safety. If Node
   reports `spawnSync bash EPERM` in this restricted process sandbox despite a
   successful child exit, repeat outside it; do not weaken installer behavior.
+
+## Dependabot workspace discovery (2026-11-17)
+
+- Configure Cargo security updates at `/` only: `src-tauri` is a member of the root workspace, not a second workspace. Automatic multi-directory discovery produced duplicate workspace roots and resolved the bridge path under `src-tauri/crates/`. `.github/dependabot.yml` sets the root explicitly and keeps routine version PRs disabled; it does not ignore security alerts or change the vendored GLib backport.
