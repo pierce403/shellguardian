@@ -15,7 +15,6 @@ use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::OnceLock;
 use std::time::Duration;
 use tauri_plugin_opener::OpenerExt;
 use tokio::process::Command;
@@ -34,15 +33,9 @@ const PROFILE_LIST_LIMIT: usize = 8192;
 const PROFILE_COUNT_LIMIT: usize = 64;
 /// Non-interactive Hermes management calls must finish within this time.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
-/// A supervisor turn may use tools; bound it generously but finitely.
-const CHAT_TIMEOUT: Duration = Duration::from_secs(600);
-/// Upper bound on one supervisor message, in bytes.
-const MESSAGE_LIMIT: usize = 16 * 1024;
-/// Upper bound on one supervisor reply returned to the webview, in characters.
-const REPLY_LIMIT: usize = 128 * 1024;
 /// Environment variables Hermes children may inherit. Everything else,
 /// including provider API keys, is removed.
-const HERMES_ENV_ALLOWLIST: &[&str] = &[
+pub(crate) const HERMES_ENV_ALLOWLIST: &[&str] = &[
     "HOME",
     "USER",
     "LOGNAME",
@@ -84,14 +77,6 @@ pub struct HermesDiscovery {
     profiles: Vec<HermesProfile>,
     /// Sanitized raw list, for display when parsing finds nothing.
     profile_text: String,
-}
-
-/// One supervisor reply.
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct HermesReply {
-    reply: String,
-    session_id: Option<String>,
 }
 
 #[cfg(unix)]
@@ -266,43 +251,6 @@ async fn fill_providers(binary: &Path, profiles: &mut [HermesProfile]) {
     }
 }
 
-/// Extracts the final `session_id: <id>` line Hermes writes to stderr.
-fn parse_session_id(stderr: &str) -> Option<String> {
-    stderr
-        .lines()
-        .rev()
-        .find_map(|line| line.trim().strip_prefix("session_id:"))
-        .map(str::trim)
-        .filter(|id| valid_session_id(id))
-        .map(str::to_owned)
-}
-
-/// Picks a short, user-facing error from Hermes stderr: its `Error:` line if
-/// present, bounded. Never returns whole stderr, which may include logs.
-fn hermes_error(stderr: &str, stdout: &str) -> String {
-    if let Some(detail) = stderr
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("Error:"))
-    {
-        let detail: String = detail.trim().chars().take(400).collect();
-        return format!("Hermes reported an error: {detail}");
-    }
-    // On a failed turn Hermes prints its own user-facing explanation on stdout,
-    // the same channel replies use. Show it, whitespace-collapsed and bounded.
-    let notice: String = stdout
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(400)
-        .collect();
-    if notice.is_empty() {
-        "Hermes did not return a reply.".into()
-    } else {
-        format!("Hermes reported: {notice}")
-    }
-}
-
 /// Applies the cleared environment to a command.
 fn scrub_env(command: &mut Command, allow: &[&[&str]]) {
     command.env_clear();
@@ -313,31 +261,24 @@ fn scrub_env(command: &mut Command, allow: &[&[&str]]) {
     }
 }
 
+/// A Hermes CLI command with the cleared environment, no stdin, and the
+/// user's home as its working directory. Hermes records the working directory
+/// as a session's workspace and runs an agent's tools there, so it must not be
+/// wherever the desktop app happened to be launched.
 pub(crate) fn hermes_command(binary: &Path) -> Command {
     let mut command = Command::new(binary);
     scrub_env(&mut command, &[HERMES_ENV_ALLOWLIST]);
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        if home.is_absolute() && home.is_dir() {
+            command.current_dir(home);
+        }
+    }
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     command
-}
-
-/// Arguments for one non-interactive supervisor turn. The message uses the
-/// `--query=` form so text beginning with `-` is never parsed as a flag.
-fn chat_args(profile: &str, message: &str, session_id: Option<&str>) -> Vec<String> {
-    let mut args = vec![
-        "-p".to_owned(),
-        profile.to_owned(),
-        "chat".to_owned(),
-        "-Q".to_owned(),
-        format!("--query={message}"),
-    ];
-    if let Some(id) = session_id {
-        args.push(format!("--resume={id}"));
-    }
-    args
 }
 
 async fn run_hermes(binary: &Path, args: &[&str]) -> Result<std::process::Output, String> {
@@ -663,66 +604,6 @@ pub async fn open_hermes_terminal(
         .await
 }
 
-fn chat_lock() -> &'static tokio::sync::Mutex<()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-/// Sends one message to a Hermes profile and returns its reply. One turn runs
-/// at a time. Dangerous commands fail closed: `HERMES_INTERACTIVE=1` with no
-/// stdin makes Hermes's approval prompt read end-of-file and deny, instead of
-/// its non-interactive default of auto-approving.
-#[tauri::command]
-pub async fn hermes_chat(
-    profile: String,
-    message: String,
-    session_id: Option<String>,
-) -> Result<HermesReply, String> {
-    let binary = hermes_path().ok_or("Hermes is not installed on this machine.")?;
-    chat_with(&binary, &profile, &message, session_id.as_deref()).await
-}
-
-async fn chat_with(
-    binary: &Path,
-    profile: &str,
-    message: &str,
-    session_id: Option<&str>,
-) -> Result<HermesReply, String> {
-    require_profile_name(profile)?;
-    let message = message.trim();
-    if message.is_empty() {
-        return Err("Enter a message for the supervisor.".into());
-    }
-    if message.len() > MESSAGE_LIMIT || message.contains('\0') {
-        return Err("That message is too long to send. Shorten it and try again.".into());
-    }
-    if let Some(id) = session_id {
-        if !valid_session_id(id) {
-            return Err("The conversation ID is not valid. Start a new conversation.".into());
-        }
-    }
-    let Ok(_turn) = chat_lock().try_lock() else {
-        return Err("The supervisor is still answering the previous message.".into());
-    };
-    let child = hermes_command(binary)
-        .env("HERMES_INTERACTIVE", "1")
-        .args(chat_args(profile, message, session_id))
-        .output();
-    let output = tokio::time::timeout(CHAT_TIMEOUT, child)
-        .await
-        .map_err(|_| {
-            "The supervisor did not finish within 10 minutes and was stopped.".to_string()
-        })?
-        .map_err(|_| "Could not run the installed Hermes CLI.".to_string())?;
-    let stderr = sanitize_text(&output.stderr, 64 * 1024);
-    let session_id = parse_session_id(&stderr);
-    let reply = sanitize_text(&output.stdout, REPLY_LIMIT).trim().to_owned();
-    if !output.status.success() || reply.is_empty() {
-        return Err(hermes_error(&stderr, &reply));
-    }
-    Ok(HermesReply { reply, session_id })
-}
-
 /// Opens the fixed official installation guide. Never accepts a URL from the
 /// webview and never downloads or runs an installer.
 #[tauri::command]
@@ -738,21 +619,24 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
 
-    /// Serializes tests that take the process-wide one-turn chat lock.
-    static TEST_CHAT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
     const SAMPLE_LIST: &str = "\n Profile          Model                        Gateway      Alias        Distribution\n ───────────────  ───────────────────────────  ───────────  ───────────  ───────────\n ◆default         —                            stopped      —            —\n  guanyu          anthropic/claude-sonnet-4    running      —            —\n\n";
 
     fn write_file(path: &Path, mode: u32, body: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, body).unwrap();
+        // Executables are written by a child process; see `write_script`.
         #[cfg(unix)]
-        {
+        if mode & 0o111 != 0 {
+            crate::test_support::write_script(path, body);
+        } else {
             use std::os::unix::fs::PermissionsExt;
+            fs::write(path, body).unwrap();
             fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
         }
         #[cfg(not(unix))]
-        let _ = mode;
+        {
+            let _ = mode;
+            fs::write(path, body).unwrap();
+        }
     }
 
     #[test]
@@ -837,8 +721,6 @@ mod tests {
         for bad in ["", "a b", "x;y", "../x", "a/b", &"a".repeat(129)] {
             assert!(!valid_session_id(bad), "{bad}");
         }
-        // A leading dash is harmless: it is always passed as `--resume=<id>`.
-        assert!(chat_args("p", "m", Some("--yolo")).contains(&"--resume=--yolo".to_owned()));
     }
 
     #[test]
@@ -901,60 +783,6 @@ mod tests {
         let text = sanitize_text(&raw, PROFILE_LIST_LIMIT);
         assert_eq!(text.chars().count(), PROFILE_LIST_LIMIT);
         assert!(text.starts_with('\u{fffd}'));
-    }
-
-    #[test]
-    fn session_id_comes_from_last_stderr_line() {
-        let stderr = "warning\nsession_id: old_1\nmore\n\nsession_id: 20261118_060100_7999ca\n";
-        assert_eq!(
-            parse_session_id(stderr).as_deref(),
-            Some("20261118_060100_7999ca")
-        );
-        assert_eq!(parse_session_id("session_id: bad id;rm\n"), None);
-        assert_eq!(parse_session_id("nothing\n"), None);
-    }
-
-    #[test]
-    fn errors_expose_only_the_bounded_error_line() {
-        let stderr = format!(
-            "  ⚠ some log line with /home/path\nError: Error code: 401 {}\n\nsession_id: x\n",
-            "z".repeat(1000)
-        );
-        let message = hermes_error(&stderr, "ignored when stderr has an error");
-        assert!(message.starts_with("Hermes reported an error: Error code: 401"));
-        assert!(!message.contains("/home/path"));
-        assert!(message.len() < 500);
-        assert_eq!(
-            hermes_error("log only\n", ""),
-            "Hermes did not return a reply."
-        );
-        let notice = hermes_error(
-            "",
-            "Hermes couldn't start the model connection: invalid_params. Your message\nwas not sent.",
-        );
-        assert_eq!(
-            notice,
-            "Hermes reported: Hermes couldn't start the model connection: invalid_params. Your message was not sent."
-        );
-        assert!(hermes_error("", &"y".repeat(5000)).len() < 450);
-    }
-
-    #[test]
-    fn chat_args_never_let_message_become_a_flag() {
-        let args = chat_args("guanyu", "--yolo -h", Some("20261118_060100_7999ca"));
-        assert_eq!(
-            args,
-            vec![
-                "-p",
-                "guanyu",
-                "chat",
-                "-Q",
-                "--query=--yolo -h",
-                "--resume=20261118_060100_7999ca",
-            ]
-        );
-        assert!(!args.iter().any(|a| a == "--yolo"));
-        assert_eq!(chat_args("p", "hi", None).len(), 5);
     }
 
     #[test]
@@ -1098,91 +926,6 @@ mod tests {
     async fn discovery_without_hermes_reports_not_installed() {
         let found = discover_with(None).await.unwrap();
         assert!(!found.installed && found.profiles.is_empty() && found.installation.is_none());
-    }
-
-    #[tokio::test]
-    async fn chat_rejects_invalid_input_before_running_anything() {
-        let missing = Path::new("/nonexistent/hermes");
-        for (profile, message, session) in [
-            ("Bad", "hi", None),
-            ("ok", "   ", None),
-            ("ok", "a\0b", None),
-            ("ok", "hi", Some("bad id")),
-        ] {
-            assert!(chat_with(missing, profile, message, session).await.is_err());
-        }
-        let long = "a".repeat(MESSAGE_LIMIT + 1);
-        let error = chat_with(missing, "ok", &long, None).await.unwrap_err();
-        assert!(error.contains("too long"));
-    }
-
-    /// A stub Hermes records its argv and environment, proving the chat call
-    /// passes only allowlisted variables (so no provider key from the test
-    /// runner's environment), fails closed on approvals, and parses the reply.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn chat_scrubs_environment_and_fails_closed_on_approval() {
-        let dir = tempfile::tempdir().unwrap();
-        let record = dir.path().join("record");
-        let stub = dir.path().join("hermes");
-        write_file(
-            &stub,
-            0o700,
-            &format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{rec}.args'\nenv > '{rec}.env'\nprintf 'Hello from \\033[1mHermes\\033[0m\\n'\nprintf 'log\\n\\nsession_id: 20261118_060100_7999ca\\n' >&2\n",
-                rec = record.display()
-            ),
-        );
-        let _serial = TEST_CHAT.lock().await;
-        let reply = chat_with(&stub, "guanyu", "status?", None).await.unwrap();
-        assert_eq!(
-            reply,
-            HermesReply {
-                reply: "Hello from [1mHermes[0m".into(),
-                session_id: Some("20261118_060100_7999ca".into()),
-            }
-        );
-        let env = fs::read_to_string(format!("{}.env", record.display())).unwrap();
-        assert!(env.lines().any(|l| l == "HERMES_INTERACTIVE=1"));
-        for line in env.lines() {
-            let name = line.split('=').next().unwrap();
-            assert!(
-                HERMES_ENV_ALLOWLIST.contains(&name)
-                    || name == "HERMES_INTERACTIVE"
-                    || name == "PWD"
-                    || name == "SHLVL"
-                    || name == "_",
-                "unexpected variable {name}"
-            );
-        }
-        let args = fs::read_to_string(format!("{}.args", record.display())).unwrap();
-        assert_eq!(args, "-p\nguanyu\nchat\n-Q\n--query=status?\n");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn chat_failure_reports_error_line_and_concurrent_turns_are_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let failing = dir.path().join("failing");
-        write_file(
-            &failing,
-            0o700,
-            "#!/bin/sh\necho 'noise' >&2\necho 'Error: Invalid API key' >&2\necho 'session_id: s1' >&2\nexit 1\n",
-        );
-        let _serial = TEST_CHAT.lock().await;
-        let error = chat_with(&failing, "guanyu", "hi", None).await.unwrap_err();
-        assert_eq!(error, "Hermes reported an error: Invalid API key");
-
-        let slow = dir.path().join("slow");
-        write_file(&slow, 0o700, "#!/bin/sh\nsleep 1\necho done\n");
-        let first = chat_with(&slow, "guanyu", "one", None);
-        let second = async {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            chat_with(&slow, "guanyu", "two", None).await
-        };
-        let (first, second) = tokio::join!(first, second);
-        assert_eq!(first.unwrap().reply, "done");
-        assert!(second.unwrap_err().contains("still answering"));
     }
 
     /// Downloads the real official installer and stages it, never running it.

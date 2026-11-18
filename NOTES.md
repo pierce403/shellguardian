@@ -684,3 +684,37 @@ bring-your-own-keys) in the in-app terminal for an isolated profile.
   output), roughly 90,000 per turn. The profile carries 61 skills and a 20 KB memory,
   and each tool call resends the context. Trimming the supervisor's skills and toolsets
   is the obvious lever before running this routinely. Worker runs were not measured.
+
+## Supervisor redesign and live verification (2026-11-18)
+
+- Hermes's gateway `session.list` is a "picker": it hides sources `kanban`, `tool`, and
+  `oneshot`, which is everything ShellGuardian creates. `hermes sessions list` shows them
+  as a fixed-width table whose columns depend on the data (four layouts); slice rows by
+  the header's offsets and take the ID as the last token.
+- `model.options` with `include_unconfigured: true` returns about 50 providers. Signed-in
+  rows carry `usage.windows` (`label`, `used_percent`, `resets_at`); rows that are not set
+  up carry `auth_type` (`api_key`, `oauth_device_code`, `oauth_external`, ...).
+- Each Hermes CLI call costs about 0.8 s of CPU, so timer polling of the board is too
+  expensive. The board database's `-wal` and `-shm` files appear, vanish, and change
+  timestamp whenever anything reads the board (including the dispatcher's 60 second
+  tick), so only the main file's timestamp and size plus a non-empty log count as change.
+- `hermes chat --format stream-json` emits `system`, `text` deltas, `tool_use`,
+  `tool_result`, and a final `result` with running token totals for the session. One
+  model call for guanyu carries about 24,000 input tokens before any work.
+- The chat CLI is a viewer of a turn that runs in the gateway, which the CLI starts on
+  demand in its own session (`start_new_session`). Signalling the chat child's process
+  group therefore cannot reach the gateway.
+- Hermes records the CLI's working directory as the session workspace; the dev build was
+  running chats in `src-tauri`. Hermes commands now run from the home directory.
+- Tests that write a script and execute it raced with other test threads forking
+  ("text file busy"); scripts are now written by a child process. A stub that left a
+  background `sleep` alive held an inherited PTY descriptor and made the terminal tests
+  time out, so stubs must leave nothing running.
+- Launching a second instance used to re-run setup in the first and panic on the
+  existing `main` window; `tauri-plugin-single-instance` fixes it and falls back to a
+  normal launch when no session bus exists.
+- With Hermes installed in `~/.local/bin`, the app always prefers it over `PATH`, so the
+  native smoke's isolated `detected` and `absent` modes need a redirected home. The new
+  `live` mode is strictly read-only instead.
+- GitHub rate-limited this machine during native runs (HTTP 403), which fails the
+  OpenShell update check; `SHELLGUARDIAN_SMOKE_SKIP_UPDATE=1` skips only that step.

@@ -1,5 +1,4 @@
-//! Client for the local Hermes gateway's JSON-RPC WebSocket, plus Hermes's
-//! kanban CLI.
+//! Client for the local Hermes gateway's JSON-RPC WebSocket.
 //!
 //! A ticket comes from `hermes -p <profile> gateway attach --json`. It is
 //! single-use, profile-scoped, valid for 30 seconds, and never leaves this
@@ -32,12 +31,10 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(60);
 const ATTACH_OUTPUT_LIMIT: usize = 64 * 1024;
 const FRAME_LIMIT: usize = 16 * 1024 * 1024;
 /// Bounds for text fields copied into projections.
-const FIELD_LIMIT: usize = 2_000;
-const BODY_LIMIT: usize = 64 * 1024;
+pub(crate) const FIELD_LIMIT: usize = 2_000;
+pub(crate) const BODY_LIMIT: usize = 64 * 1024;
 const MODEL_LIST_LIMIT: usize = 400;
 const ROW_LIMIT: usize = 500;
-const KANBAN_TITLE_LIMIT: usize = 300;
-const KANBAN_BODY_LIMIT: usize = 16 * 1024;
 const API_KEY_LIMIT: usize = 4096;
 
 /// A minted ticket and the loopback URL it is good for. Deliberately not
@@ -57,7 +54,7 @@ pub struct GatewayStatus {
     message: Option<String>,
 }
 
-fn bounded(text: &str, limit: usize) -> String {
+pub(crate) fn bounded(text: &str, limit: usize) -> String {
     sanitize_text(text.as_bytes(), limit)
 }
 
@@ -317,7 +314,7 @@ async fn call_redacting(
 
 /// Copies only `keys` from `object`, keeping scalars (text bounded) and, for
 /// keys listed in `maps`, flat maps of numbers. Nested data is dropped.
-fn pick(object: &Value, keys: &[&str], text_limit: usize) -> Map<String, Value> {
+pub(crate) fn pick(object: &Value, keys: &[&str], text_limit: usize) -> Map<String, Value> {
     let mut out = Map::new();
     for key in keys {
         let value = match object.get(*key) {
@@ -338,7 +335,7 @@ fn pick(object: &Value, keys: &[&str], text_limit: usize) -> Map<String, Value> 
     out
 }
 
-fn rows(value: Option<&Value>) -> impl Iterator<Item = &Value> {
+pub(crate) fn rows(value: Option<&Value>) -> impl Iterator<Item = &Value> {
     value
         .and_then(Value::as_array)
         .into_iter()
@@ -400,6 +397,20 @@ fn project_model_options(result: &Value) -> Value {
                 FIELD_LIMIT,
             );
             row.insert("models".into(), json!(model_ids(p.get("models"))));
+            // Subscription providers report how much of each limit window is used.
+            let windows: Vec<Value> = rows(p.pointer("/usage/windows"))
+                .take(8)
+                .map(|w| {
+                    Value::Object(pick(
+                        w,
+                        &["label", "used_percent", "resets_at", "scope"],
+                        200,
+                    ))
+                })
+                .collect();
+            if !windows.is_empty() {
+                row.insert("usage".into(), Value::Array(windows));
+            }
             Value::Object(row)
         })
         .collect();
@@ -408,10 +419,17 @@ fn project_model_options(result: &Value) -> Value {
     Value::Object(out)
 }
 
-/// Lists Hermes's providers and models for a profile, with sign-in state.
+/// Lists Hermes's providers and models for a profile, with sign-in state and,
+/// for subscription providers, how much of each usage window is spent. With
+/// `all`, providers that are not set up yet are included.
 #[tauri::command]
-pub async fn hermes_model_options(profile: String) -> Result<Value, String> {
-    let result = call(&profile, "model.options", json!({})).await?;
+pub async fn hermes_model_options(profile: String, all: bool) -> Result<Value, String> {
+    let params = if all {
+        json!({"include_unconfigured": true})
+    } else {
+        json!({})
+    };
+    let result = call(&profile, "model.options", params).await?;
     Ok(project_model_options(&result))
 }
 
@@ -470,33 +488,7 @@ pub async fn save_hermes_key(profile: String, provider: String, key: String) -> 
     .map(|_| ())
 }
 
-// ---- Sessions and schedules ----
-
-const SESSION_KEYS: &[&str] = &[
-    "session_id",
-    "title",
-    "source",
-    "started_at",
-    "last_active_at",
-    "message_count",
-    "running",
-    "model",
-    "preview",
-];
-
-/// Lists a profile's stored Hermes sessions, newest first.
-#[tauri::command]
-pub async fn hermes_sessions(profile: String) -> Result<Vec<Value>, String> {
-    let result = call(
-        &profile,
-        "session.list",
-        json!({"limit": 100, "scope": "stored"}),
-    )
-    .await?;
-    Ok(rows(result.get("sessions"))
-        .map(|s| Value::Object(pick(s, SESSION_KEYS, FIELD_LIMIT)))
-        .collect())
-}
+// ---- Transcripts and schedules ----
 
 /// Reads the latest messages of one stored session. Read-only: it does not
 /// attach to or resume the session. Text may contain sensitive tool output;
@@ -553,233 +545,6 @@ pub async fn hermes_schedules(profile: String) -> Result<Vec<Value>, String> {
             ))
         })
         .collect())
-}
-
-// ---- Kanban (CLI; works without a gateway) ----
-
-fn valid_board(slug: &str) -> bool {
-    slug.bytes()
-        .next()
-        .is_some_and(|b| b.is_ascii_alphanumeric())
-        && slug.len() <= 64
-        && slug
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_'))
-}
-
-/// A leading alphanumeric keeps an ID from ever reading as a flag.
-fn valid_task_id(id: &str) -> bool {
-    id.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
-        && id.len() <= 64
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-}
-
-/// `hermes kanban [--board <slug>] <args...>` with the shared command rules.
-fn kanban_args(board: Option<&str>, args: &[&str]) -> Result<Vec<String>, String> {
-    let mut out = vec!["kanban".to_owned()];
-    if let Some(board) = board {
-        if !valid_board(board) {
-            return Err("That board name is not valid.".into());
-        }
-        out.push(format!("--board={board}"));
-    }
-    out.extend(args.iter().map(|a| (*a).to_owned()));
-    Ok(out)
-}
-
-async fn kanban(board: Option<&str>, args: &[&str]) -> Result<String, String> {
-    let binary = hermes_path().ok_or("Hermes is not installed on this machine.")?;
-    let args = kanban_args(board, args)?;
-    let child = hermes_command(&binary).args(&args).output();
-    let output = tokio::time::timeout(Duration::from_secs(30), child)
-        .await
-        .map_err(|_| "The Hermes kanban did not respond in time.".to_string())?
-        .map_err(|_| "Could not run the installed Hermes CLI.".to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    if !output.status.success() {
-        let stderr = sanitize_text(&output.stderr, 8192);
-        let detail = stderr
-            .lines()
-            .rev()
-            .map(str::trim)
-            .find(|l| !l.is_empty())
-            .unwrap_or("the command failed");
-        return Err(format!("Hermes kanban: {}", bounded(detail, 300)));
-    }
-    Ok(stdout)
-}
-
-fn parse_json(stdout: &str) -> Result<Value, String> {
-    let start = stdout
-        .find(['[', '{'])
-        .ok_or("Hermes kanban gave no data.")?;
-    serde_json::from_str(&stdout[start..]).map_err(|_| "Hermes kanban gave unexpected data.".into())
-}
-
-const TASK_KEYS: &[&str] = &[
-    "id",
-    "title",
-    "assignee",
-    "status",
-    "priority",
-    "tenant",
-    "created_at",
-    "started_at",
-    "completed_at",
-    "created_by",
-    "session_id",
-    "model_override",
-    "provider_override",
-];
-
-/// Lists kanban boards with task counts.
-#[tauri::command]
-pub async fn hermes_kanban_boards() -> Result<Vec<Value>, String> {
-    let value = parse_json(&kanban(None, &["boards", "list", "--json"]).await?)?;
-    Ok(rows(Some(&value))
-        .map(|b| {
-            Value::Object(pick(
-                b,
-                &[
-                    "slug",
-                    "name",
-                    "description",
-                    "is_current",
-                    "archived",
-                    "counts",
-                    "total",
-                ],
-                FIELD_LIMIT,
-            ))
-        })
-        .collect())
-}
-
-/// Lists a board's tasks.
-#[tauri::command]
-pub async fn hermes_kanban_tasks(board: String) -> Result<Vec<Value>, String> {
-    let value = parse_json(&kanban(Some(&board), &["list", "--json"]).await?)?;
-    Ok(rows(Some(&value))
-        .map(|t| Value::Object(pick(t, TASK_KEYS, FIELD_LIMIT)))
-        .collect())
-}
-
-/// One task with its body, result, and comments.
-#[tauri::command]
-pub async fn hermes_kanban_task(board: String, id: String) -> Result<Value, String> {
-    if !valid_task_id(&id) {
-        return Err("That task ID is not valid.".into());
-    }
-    let value = parse_json(&kanban(Some(&board), &["show", &id, "--json"]).await?)?;
-    Ok(project_task_detail(&value))
-}
-
-/// Event payload fields worth showing. Payloads are Hermes-internal JSON; only
-/// these scalars are copied, so paths, PIDs, and anything else stay native.
-const EVENT_PAYLOAD_KEYS: &[&str] = &[
-    "session_id",
-    "note",
-    "outcome",
-    "reason",
-    "summary",
-    "status",
-    "profile",
-    "error",
-    "kind",
-];
-
-fn project_event(event: &Value) -> Value {
-    let mut out = pick(event, &["kind", "created_at", "run_id"], FIELD_LIMIT);
-    // `payload` is a JSON string in `show --json` and an object elsewhere.
-    let parsed = match event.get("payload") {
-        Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok(),
-        Some(object @ Value::Object(_)) => Some(object.clone()),
-        _ => None,
-    };
-    if let Some(payload) = parsed {
-        let detail = pick(&payload, EVENT_PAYLOAD_KEYS, 500);
-        if !detail.is_empty() {
-            out.insert("detail".into(), Value::Object(detail));
-        }
-    }
-    Value::Object(out)
-}
-
-/// Projects `kanban show --json`: the task, comments, event timeline, and runs.
-fn project_task_detail(value: &Value) -> Value {
-    let task = value.get("task").unwrap_or(value);
-    let mut out = pick(task, TASK_KEYS, FIELD_LIMIT);
-    out.extend(pick(
-        task,
-        &["body", "result", "last_failure_error"],
-        BODY_LIMIT,
-    ));
-    out.extend(pick(value, &["latest_summary"], BODY_LIMIT));
-    out.insert(
-        "comments".into(),
-        Value::Array(
-            rows(value.get("comments"))
-                .map(|c| Value::Object(pick(c, &["author", "body", "created_at"], BODY_LIMIT)))
-                .collect(),
-        ),
-    );
-    out.insert(
-        "events".into(),
-        Value::Array(rows(value.get("events")).map(project_event).collect()),
-    );
-    out.insert(
-        "runs".into(),
-        Value::Array(
-            rows(value.get("runs"))
-                .map(|r| {
-                    Value::Object(pick(
-                        r,
-                        &[
-                            "id",
-                            "profile",
-                            "status",
-                            "outcome",
-                            "summary",
-                            "error",
-                            "started_at",
-                            "ended_at",
-                        ],
-                        FIELD_LIMIT,
-                    ))
-                })
-                .collect(),
-        ),
-    );
-    Value::Object(out)
-}
-
-/// The tail of a task's worker log. Like terminal output it may contain
-/// sensitive text: it is shown, never logged or persisted.
-#[tauri::command]
-pub async fn hermes_kanban_log(board: String, id: String) -> Result<String, String> {
-    if !valid_task_id(&id) {
-        return Err("That task ID is not valid.".into());
-    }
-    let text = kanban(Some(&board), &["log", "--tail=16384", "--", &id]).await?;
-    Ok(sanitize_text(text.as_bytes(), 16 * 1024))
-}
-
-/// Board totals by status and assignee.
-#[tauri::command]
-pub async fn hermes_kanban_stats(board: String) -> Result<Value, String> {
-    let value = parse_json(&kanban(Some(&board), &["stats", "--json"]).await?)?;
-    Ok(Value::Object(pick(
-        &value,
-        &[
-            "by_status",
-            "by_assignee",
-            "oldest_ready_age_seconds",
-            "now",
-        ],
-        FIELD_LIMIT,
-    )))
 }
 
 // ---- Supervisor preparation ----
@@ -888,70 +653,6 @@ pub async fn prepare_hermes_supervisor(profile: String) -> Result<SupervisorPrep
         kanban_enabled,
         skill_installed,
     })
-}
-
-fn require_text(text: &str, limit: usize, what: &str) -> Result<(), String> {
-    if text.trim().is_empty() {
-        return Err(format!("Enter a {what}."));
-    }
-    if text.len() > limit || text.contains('\0') {
-        return Err(format!("That {what} is too long."));
-    }
-    Ok(())
-}
-
-/// Creates a task. Text goes in `--opt=value` form or after `--`, so it can
-/// never be parsed as a flag. An assigned task runs when the gateway runs.
-#[tauri::command]
-pub async fn create_hermes_kanban_task(
-    board: String,
-    title: String,
-    body: String,
-    assignee: Option<String>,
-) -> Result<Value, String> {
-    let title = title.trim();
-    require_text(title, KANBAN_TITLE_LIMIT, "task title")?;
-    if title.contains('\n') {
-        return Err("Keep the task title on one line.".into());
-    }
-    if body.len() > KANBAN_BODY_LIMIT || body.contains('\0') {
-        return Err("That description is too long.".into());
-    }
-    let mut args = vec![
-        "create".to_owned(),
-        "--json".to_owned(),
-        "--created-by=shellguardian".to_owned(),
-    ];
-    if !body.trim().is_empty() {
-        args.push(format!("--body={}", body.trim()));
-    }
-    if let Some(assignee) = assignee.filter(|a| !a.is_empty()) {
-        require_profile_name(&assignee)?;
-        args.push(format!("--assignee={assignee}"));
-    }
-    args.push("--".to_owned());
-    args.push(title.to_owned());
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let value = parse_json(&kanban(Some(&board), &refs).await?)?;
-    let task = value.get("task").unwrap_or(&value);
-    Ok(Value::Object(pick(task, TASK_KEYS, FIELD_LIMIT)))
-}
-
-/// Adds a comment to a task as `you`.
-#[tauri::command]
-pub async fn comment_hermes_kanban_task(
-    board: String,
-    id: String,
-    text: String,
-) -> Result<(), String> {
-    if !valid_task_id(&id) {
-        return Err("That task ID is not valid.".into());
-    }
-    let text = text.trim();
-    require_text(text, KANBAN_BODY_LIMIT, "comment")?;
-    kanban(Some(&board), &["comment", "--author=you", "--", &id, text])
-        .await
-        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -1070,47 +771,12 @@ mod tests {
     }
 
     #[test]
-    fn kanban_arguments_never_become_flags() {
-        assert_eq!(
-            kanban_args(Some("default"), &["list", "--json"]).unwrap(),
-            vec!["kanban", "--board=default", "list", "--json"]
-        );
-        assert!(kanban_args(Some("--evil"), &[]).is_err());
-        assert!(kanban_args(Some("Bad Board"), &[]).is_err());
-        assert!(valid_task_id("t_12ab"));
-        assert!(!valid_task_id("--json"));
-        assert!(!valid_task_id("a/b"));
+    fn slugs_are_plain_tokens() {
         assert!(valid_slug("openai-codex", 100));
+        assert!(valid_slug("anthropic/claude-fable-5.2", 100));
         assert!(!valid_slug("x --provider y", 100));
-    }
-
-    #[test]
-    fn task_detail_projects_timeline_and_runs() {
-        let show = json!({
-            "task": {"id": "t_1", "title": "T", "status": "running", "assignee": "guanyu",
-                     "session_id": "local-abc", "workspace_path": "/home/x/secret", "body": "do it"},
-            "comments": [{"author": "you", "body": "hi", "created_at": 5}],
-            "events": [
-                {"kind": "owner_admitted", "created_at": 10, "run_id": 3,
-                 "payload": "{\"session_id\":\"s_9\",\"pid\":4242,\"db\":\"/home/x/state.db\"}"},
-                {"kind": "heartbeat", "created_at": 11, "payload": {"note": "halfway"}},
-                {"kind": "claimed", "created_at": 9, "payload": "not json"},
-            ],
-            "runs": [{"id": 3, "profile": "guanyu", "status": "running", "worker_pid": 4242,
-                      "metadata": {"x": "y"}, "started_at": 9}],
-        });
-        let out = project_task_detail(&show);
-        assert_eq!(out["session_id"], "local-abc");
-        assert!(out.get("workspace_path").is_none());
-        assert_eq!(out["events"][0]["detail"]["session_id"], "s_9");
-        assert!(out["events"][0]["detail"].get("pid").is_none());
-        assert!(out["events"][0]["detail"].get("db").is_none());
-        assert_eq!(out["events"][1]["detail"]["note"], "halfway");
-        assert!(out["events"][2].get("detail").is_none());
-        assert_eq!(out["runs"][0]["profile"], "guanyu");
-        assert!(out["runs"][0].get("worker_pid").is_none());
-        assert!(out["runs"][0].get("metadata").is_none());
-        assert_eq!(out["comments"][0]["body"], "hi");
+        assert!(!valid_slug("", 100));
+        assert!(!valid_slug(&"a".repeat(101), 100));
     }
 
     #[test]
@@ -1252,5 +918,119 @@ mod tests {
         assert!(!error.contains("sk-test"));
         assert!(error.len() < 400);
         server.await.unwrap();
+    }
+
+    /// Short description of a projected value for live-test output: keys with
+    /// types and truncated scalars. `redact` prints lengths instead of text.
+    fn shape(value: &Value, redact: bool) -> String {
+        match value {
+            Value::Object(map) => {
+                let fields: Vec<String> = map
+                    .iter()
+                    .map(|(k, v)| format!("{k}: {}", shape(v, redact)))
+                    .collect();
+                format!("{{{}}}", fields.join(", "))
+            }
+            Value::Array(items) => match items.first() {
+                Some(first) => format!("[{} x {}]", items.len(), shape(first, redact)),
+                None => "[]".into(),
+            },
+            Value::String(s) if redact => format!("<text {}>", s.len()),
+            Value::String(s) => format!("{:?}", s.chars().take(60).collect::<String>()),
+            other => other.to_string(),
+        }
+    }
+
+    /// Read-only pass over a real, already-running gateway. Never starts a
+    /// gateway, changes configuration, or runs inference. Run with:
+    /// `SHELLGUARDIAN_TEST_HERMES_GATEWAY=<profile> cargo test -p shellguardian
+    /// live_gateway -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "requires SHELLGUARDIAN_TEST_HERMES_GATEWAY and a running gateway"]
+    async fn live_gateway_read_only_surface() {
+        let profile = std::env::var("SHELLGUARDIAN_TEST_HERMES_GATEWAY")
+            .expect("set SHELLGUARDIAN_TEST_HERMES_GATEWAY to a profile name");
+        let status = hermes_gateway_status(profile.clone()).await.unwrap();
+        println!("status: {status:?}");
+        assert_eq!(status.state, "ready", "start the gateway first");
+
+        for all in [false, true] {
+            let options = hermes_model_options(profile.clone(), all).await.unwrap();
+            let providers = options["providers"].as_array().cloned().unwrap_or_default();
+            println!(
+                "model.options(all={all}): model={} provider={} providers={}",
+                options["model"],
+                options["provider"],
+                providers.len()
+            );
+            for provider in providers
+                .iter()
+                .filter(|p| !all || p["authenticated"] == true)
+            {
+                let mut row = provider.clone();
+                let models = row["models"].as_array().cloned().unwrap_or_default();
+                row["models"] = json!(format!(
+                    "{} models, first {:?}",
+                    models.len(),
+                    models.first()
+                ));
+                println!("  {}", shape(&row, false));
+            }
+            if all {
+                let kinds: std::collections::BTreeSet<String> = providers
+                    .iter()
+                    .filter(|p| p["authenticated"] != true)
+                    .map(|p| p["auth_type"].as_str().unwrap_or("none").to_owned())
+                    .collect();
+                println!("  not set up: auth types {kinds:?}");
+            }
+            assert!(!providers.is_empty());
+        }
+
+        let describe = call(&profile, "profiles.describe", json!({"name": profile}))
+            .await
+            .unwrap();
+        println!("enabled toolsets: {:?}", enabled_toolsets(&describe));
+
+        let sessions = crate::hermes_sessions::hermes_sessions(profile.clone())
+            .await
+            .unwrap();
+        println!("sessions list: {} sessions", sessions.len());
+        for session in sessions.iter().take(6) {
+            println!("  {}", serde_json::to_string(session).unwrap());
+        }
+        if let Some(first) = sessions.first() {
+            let id = serde_json::to_value(first).unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let rows = hermes_transcript(profile.clone(), id.clone())
+                .await
+                .unwrap();
+            println!("session.transcript({id}): {} rows", rows.len());
+            for row in rows.iter().take(6) {
+                println!("  {}", shape(row, true));
+            }
+        }
+
+        let schedules = hermes_schedules(profile.clone()).await.unwrap();
+        println!("cron.manage list: {} jobs", schedules.len());
+        for job in schedules.iter().take(3) {
+            println!("  {}", shape(job, false));
+        }
+
+        // Optional: `SHELLGUARDIAN_TEST_WORKER_SESSION=<profile>/<session id>`
+        // checks that a kanban worker's transcript is readable.
+        if let Ok(target) = std::env::var("SHELLGUARDIAN_TEST_WORKER_SESSION") {
+            let (assignee, session) = target.split_once('/').expect("use <profile>/<session>");
+            let rows = hermes_transcript(assignee.to_owned(), session.to_owned())
+                .await
+                .unwrap();
+            println!(
+                "worker transcript: {:?}",
+                rows.iter().map(|row| shape(row, true)).collect::<Vec<_>>()
+            );
+            assert!(!rows.is_empty());
+        }
     }
 }

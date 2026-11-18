@@ -7,11 +7,15 @@ import { execFileSync } from 'node:child_process';
 
 const endpoint = 'http://127.0.0.1:4544';
 const application = resolve(process.argv[2] ?? 'target/debug/shellguardian');
-// Optional read-only Hermes card check: 'absent' or 'detected'. For 'detected',
-// put an isolated Hermes wrapper on the driver's PATH; never a real profile.
+// Optional Supervisor check: 'absent', 'detected', or 'live'.
+// - detected: put an isolated Hermes wrapper on the driver's PATH. Walks every
+//   tab and opens (then closes) the setup terminal for the wrapper's profile.
+// - live: the real installed Hermes. Strictly read-only: walks every tab and
+//   takes screenshots; never sends a message, opens a terminal, or starts a gateway.
 const expectHermes = process.env.SHELLGUARDIAN_SMOKE_HERMES;
-if (expectHermes && !['absent', 'detected'].includes(expectHermes)) {
-  throw new Error('SHELLGUARDIAN_SMOKE_HERMES must be absent or detected');
+const skipUpdate = process.env.SHELLGUARDIAN_SMOKE_SKIP_UPDATE === '1';
+if (expectHermes && !['absent', 'detected', 'live'].includes(expectHermes)) {
+  throw new Error('SHELLGUARDIAN_SMOKE_HERMES must be absent, detected, or live');
 }
 let session;
 
@@ -35,12 +39,15 @@ async function execute(script) {
 
 async function until(script, predicate, description) {
   const deadline = Date.now() + 35_000;
+  let last;
   while (Date.now() < deadline) {
-    const result = await execute(script);
-    if (predicate(result)) return result;
+    last = await execute(script);
+    if (predicate(last)) return last;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`Native check timed out: ${description}`);
+  // What the page showed helps tell a slow network from a real regression.
+  const seen = typeof last === 'string' ? last.replace(/\s+/g, ' ').slice(-400) : String(last);
+  throw new Error(`Native check timed out: ${description}. Last seen: ${seen}`);
 }
 
 try {
@@ -66,26 +73,30 @@ try {
   const overview = await request(`/session/${session}/screenshot`);
   await writeFile('test-results/native-overview.png', Buffer.from(overview, 'base64'));
 
-  await execute(
-    `Array.from(document.querySelectorAll('button')).find(button => button.textContent.includes('OpenShell & settings')).click(); return true;`,
-  );
-  const settings = await until(
-    'return document.body.innerText',
-    (value) =>
-      value.includes('You’re on the latest stable release') ||
-      value.includes('is available') ||
-      value.includes('ahead of the stable release'),
-    'official native update check',
-  );
-  assert.ok(settings.includes(expectedVersion));
-  const screenshot = await request(`/session/${session}/screenshot`);
-  await writeFile('test-results/native-settings.png', Buffer.from(screenshot, 'base64'));
-  let hermes = null;
+  // The update check calls GitHub, which rate-limits unauthenticated clients.
+  // SHELLGUARDIAN_SMOKE_SKIP_UPDATE=1 skips only that step and says so below.
+  if (!skipUpdate) {
+    await execute(
+      `Array.from(document.querySelectorAll('button')).find(button => button.textContent.includes('OpenShell & settings')).click(); return true;`,
+    );
+    const settings = await until(
+      'return document.body.innerText',
+      (value) =>
+        value.includes('You’re on the latest stable release') ||
+        value.includes('is available') ||
+        value.includes('ahead of the stable release'),
+      'official native update check',
+    );
+    assert.ok(settings.includes(expectedVersion));
+    const screenshot = await request(`/session/${session}/screenshot`);
+    await writeFile('test-results/native-settings.png', Buffer.from(screenshot, 'base64'));
+  }
   if (expectHermes) {
-    const foot = await until(
+    const live = expectHermes !== 'absent';
+    await until(
       `return document.querySelector('.hermes-foot')?.getAttribute('aria-label') ?? ''`,
       (value) =>
-        expectHermes === 'detected'
+        live
           ? /^Hermes supervisor: Gateway (stopped|running)$/.test(value)
           : value === 'Hermes supervisor: Not detected',
       `native Hermes sidebar status reports ${expectHermes}`,
@@ -93,58 +104,110 @@ try {
     await execute(
       `Array.from(document.querySelectorAll('nav button')).find(button => button.textContent.trim() === 'Supervisor').click(); return true;`,
     );
-    if (expectHermes === 'detected') {
+    const shot = async (name) => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const image = await request(`/session/${session}/screenshot`);
+      await writeFile(`test-results/native-supervisor-${name}.png`, Buffer.from(image, 'base64'));
+    };
+    const panel = `document.querySelector('#supervisor-panel')?.innerText ?? ''`;
+    const openTab = (name) =>
+      execute(`document.querySelector('#supervisor-tab-${name}').click(); return true;`);
+    if (!live) {
+      const card = await until(
+        `return document.querySelector('[aria-label="Install Hermes"]')?.innerText ?? ''`,
+        (value) => value.includes('Installation guide'),
+        'native Supervisor page offers the installer',
+      );
+      assert.ok(!card.includes('Sample preview'));
+      await shot('absent');
+    } else {
+      // Read-only pass over every tab. Nothing here sends a message, starts a
+      // gateway, or changes a profile.
       await until(
-        `return Boolean(document.querySelector('#supervisor-tab-agents'))`,
+        `return Boolean(document.querySelector('[aria-label="Supervisor chat"] textarea'))`,
         Boolean,
-        'Supervisor tabs render',
+        'native chat composer renders',
       );
-      await execute(`document.querySelector('#supervisor-tab-agents').click(); return true;`);
-    }
-    const region = expectHermes === 'detected' ? 'Hermes agents' : 'Install Hermes';
-    hermes = await until(
-      `return document.querySelector('[aria-label="${region}"]')?.innerText ?? ''`,
-      (value) =>
-        expectHermes === 'detected'
-          ? value.includes('default') && value.includes('Create agent')
-          : value.includes('Installation guide'),
-      `native Supervisor page reports ${expectHermes}`,
-    );
-    assert.ok(!hermes.includes('Sample preview'));
-    assert.ok(!hermes.includes('Unsupported'));
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const shot = await request(`/session/${session}/screenshot`);
-    await writeFile(
-      `test-results/native-supervisor-${expectHermes}.png`,
-      Buffer.from(shot, 'base64'),
-    );
-    if (expectHermes === 'detected') {
-      // Open the real in-app setup terminal for the isolated wrapper's
-      // default profile, confirm Hermes renders, then close it (killing it).
-      await execute(
-        `Array.from(document.querySelectorAll('[aria-label="Hermes agents"] button')).find(button => button.textContent.trim() === 'Configure').click(); return true;`,
+      const chat = await until(
+        `return ${panel}`,
+        (value) => !value.includes('Checking usage'),
+        'native usage limits settle',
       );
-      const output = await until(
-        `return document.querySelector('dialog[aria-label="Configure default"] .xterm-rows')?.innerText ?? ''`,
-        (value) => /hermes|setup|provider|model/i.test(value),
-        'Hermes setup output in the in-app terminal',
-      );
-      assert.ok(output.length > 0);
-      const terminalShot = await request(`/session/${session}/screenshot`);
-      await writeFile(
-        'test-results/native-hermes-setup-terminal.png',
-        Buffer.from(terminalShot, 'base64'),
-      );
-      await execute(
-        `Array.from(document.querySelectorAll('dialog[aria-label="Configure default"] button')).find(button => button.textContent.includes('Close terminal')).click(); return true;`,
-      );
+      assert.ok(!chat.includes('Sample preview'));
+      await shot(`${expectHermes}-chat`);
+
+      await openTab('board');
       await until(
-        `return document.querySelector('dialog[aria-label="Configure default"]') === null`,
-        Boolean,
-        'setup terminal closed',
+        `return [Boolean(document.querySelector('.sv-board')), ${panel}]`,
+        ([board, text]) =>
+          text.includes('New task') && (board || text.includes('No tasks on this board yet')),
+        'native board renders columns or its empty state',
       );
+      await shot(`${expectHermes}-board`);
+
+      await openTab('agents');
+      const agents = await until(
+        `return document.querySelector('[aria-label="Hermes agents"]')?.innerText ?? ''`,
+        (value) => value.includes('default') && value.includes('New agent'),
+        'native agent cards render',
+      );
+      assert.ok(!agents.includes('Sample preview'));
+      await until(
+        `return ${panel}`,
+        (value) =>
+          value.includes('Use this model') || value.includes('gateway, which is not running'),
+        'native provider panel reports providers or asks to start the gateway',
+      );
+      await shot(`${expectHermes}-agents`);
+
+      await openTab('sessions');
+      await until(
+        `return [document.querySelectorAll('[aria-label="Hermes sessions"] .sv-list-item').length, document.querySelector('[aria-label="Hermes sessions"]')?.innerText ?? '']`,
+        ([rows, text]) => rows > 0 || text.includes('No sessions here yet'),
+        'native sessions list renders rows or its empty state',
+      );
+      await shot(`${expectHermes}-sessions`);
+
+      await openTab('schedules');
+      await until(
+        `return [document.querySelectorAll('[aria-label="Hermes schedules"] .sv-schedule').length, document.querySelector('[aria-label="Hermes schedules"]')?.innerText ?? '']`,
+        ([rows, text]) =>
+          rows > 0 ||
+          text.includes('No scheduled jobs') ||
+          text.includes('gateway, which is not running'),
+        'native schedules render jobs, an empty state, or the gateway notice',
+      );
+      await shot(`${expectHermes}-schedules`);
+
+      if (expectHermes === 'detected') {
+        // Isolated wrapper only: open the real in-app setup terminal for its
+        // default profile, confirm Hermes renders, then close it (killing it).
+        await openTab('agents');
+        await until(
+          `return Boolean(document.querySelector('button[aria-label="Open setup for default"]'))`,
+          Boolean,
+          'setup button renders',
+        );
+        await execute(
+          `document.querySelector('button[aria-label="Open setup for default"]').click(); return true;`,
+        );
+        const output = await until(
+          `return document.querySelector('dialog[aria-label="Configure default"] .xterm-rows')?.innerText ?? ''`,
+          (value) => /hermes|setup|provider|model/i.test(value),
+          'Hermes setup output in the in-app terminal',
+        );
+        assert.ok(output.length > 0);
+        await shot('setup-terminal');
+        await execute(
+          `Array.from(document.querySelectorAll('dialog[aria-label="Configure default"] button')).find(button => button.textContent.includes('Close terminal')).click(); return true;`,
+        );
+        await until(
+          `return document.querySelector('dialog[aria-label="Configure default"]') === null`,
+          Boolean,
+          'setup terminal closed',
+        );
+      }
     }
-    hermes = foot;
   }
   console.log(
     JSON.stringify(
@@ -152,7 +215,7 @@ try {
         native: true,
         installedVersion: expectedVersion,
         gatewayConnected: true,
-        releaseChecked: true,
+        releaseChecked: !skipUpdate,
         hermes: expectHermes ?? 'not checked',
         storageEntries: 0,
         mutationsPerformed: false,

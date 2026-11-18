@@ -8,10 +8,15 @@ mod app_updates;
 #[cfg(target_os = "linux")]
 mod desktop_integration;
 mod hermes;
+mod hermes_chat;
 mod hermes_gateway;
+mod hermes_kanban;
+mod hermes_sessions;
 mod preferences;
 mod ssh_connections;
 mod terminal_sessions;
+#[cfg(test)]
+mod test_support;
 use app_updates::AppUpdates;
 use terminal_sessions::TerminalSessions;
 
@@ -134,6 +139,16 @@ fn main() {
     }
 
     tauri::Builder::default()
+        // Must be the first plugin. A second launch focuses the running window
+        // and exits, instead of re-running setup in the first instance (which
+        // panicked on the already-created main window).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(app_updates::on_window_event)
@@ -143,23 +158,26 @@ fn main() {
             hermes::create_hermes_profile,
             hermes::prepare_hermes_installer,
             hermes::open_hermes_terminal,
-            hermes::hermes_chat,
+            hermes_chat::hermes_chat,
+            hermes_chat::hermes_chat_progress,
+            hermes_chat::stop_hermes_chat,
             hermes::open_hermes_install_guide,
             hermes_gateway::hermes_gateway_status,
             hermes_gateway::start_hermes_gateway,
             hermes_gateway::hermes_model_options,
             hermes_gateway::set_hermes_model,
             hermes_gateway::save_hermes_key,
-            hermes_gateway::hermes_sessions,
+            hermes_sessions::hermes_sessions,
             hermes_gateway::hermes_transcript,
             hermes_gateway::hermes_schedules,
-            hermes_gateway::hermes_kanban_boards,
-            hermes_gateway::hermes_kanban_tasks,
-            hermes_gateway::hermes_kanban_task,
-            hermes_gateway::create_hermes_kanban_task,
-            hermes_gateway::comment_hermes_kanban_task,
-            hermes_gateway::hermes_kanban_log,
-            hermes_gateway::hermes_kanban_stats,
+            hermes_kanban::hermes_kanban_boards,
+            hermes_kanban::hermes_kanban_tasks,
+            hermes_kanban::hermes_kanban_task,
+            hermes_kanban::create_hermes_kanban_task,
+            hermes_kanban::comment_hermes_kanban_task,
+            hermes_kanban::hermes_kanban_log,
+            hermes_kanban::hermes_kanban_stats,
+            hermes_kanban::hermes_kanban_revision,
             hermes_gateway::prepare_hermes_supervisor,
             get_agent_detail,
             get_agent_logs,
@@ -186,6 +204,7 @@ fn main() {
             app.manage(SshConnections::default());
             app.manage(TerminalSessions::default());
             app.manage(hermes::HermesInstaller::default());
+            app.manage(hermes_chat::ChatTurns::default());
             let window = app
                 .get_webview_window("main")
                 .expect("configured main window");
@@ -205,6 +224,7 @@ fn main() {
         .expect("could not build ShellGuardian")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<hermes_chat::ChatTurns>().shutdown();
                 tauri::async_runtime::block_on(app.state::<TerminalSessions>().shutdown());
                 tauri::async_runtime::block_on(app.state::<SshConnections>().shutdown());
             }

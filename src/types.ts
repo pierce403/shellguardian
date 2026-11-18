@@ -95,9 +95,39 @@ export interface HermesDiscovery {
   profileText: string;
 }
 
+/** One tool call the agent made during a chat turn. */
+export interface ChatStep {
+  name: string;
+  /** A task title or ID for a few known tools; nothing else is exposed. */
+  detail: string | null;
+  done: boolean;
+  failed: boolean;
+  durationMs: number | null;
+}
+export interface ChatTokens {
+  input: number;
+  output: number;
+  total: number;
+  cacheRead: number;
+}
 export interface HermesReply {
   reply: string;
   sessionId: string | null;
+  model: string | null;
+  tokens: ChatTokens | null;
+  durationMs: number | null;
+  steps: ChatStep[];
+  /** True when the user stopped the turn; reply is whatever had arrived. */
+  stopped: boolean;
+}
+/** Live state of the running chat turn. */
+export interface ChatProgress {
+  active: boolean;
+  profile: string | null;
+  text: string;
+  steps: ChatStep[];
+  elapsedMs: number;
+  stopping: boolean;
 }
 
 export interface AppUpdateStatus {
@@ -163,6 +193,14 @@ export interface HermesProviderOption {
   total_models?: number;
   warning?: string;
   models: string[];
+  /** Usage windows a subscription provider reports, when it reports any. */
+  usage?: UsageWindow[];
+}
+export interface UsageWindow {
+  label?: string;
+  used_percent?: number;
+  resets_at?: string;
+  scope?: string;
 }
 export interface HermesModelOptions {
   model?: string;
@@ -175,16 +213,18 @@ export interface HermesModelChange {
   confirm_message?: string;
 }
 export type Stamp = string | number | undefined;
+export type SessionKind = 'task' | 'chat' | 'conversation';
 export interface HermesSession {
-  session_id?: string;
-  title?: string;
-  source?: string;
-  started_at?: Stamp;
-  last_active_at?: Stamp;
-  message_count?: number;
-  running?: boolean;
-  model?: string;
-  preview?: string;
+  id: string;
+  title: string | null;
+  /** Start of the first user message. */
+  preview: string | null;
+  /** Folder or kanban task the session ran in. */
+  workspace: string | null;
+  /** Hermes's own relative time, for example "6m ago". */
+  lastActive: string | null;
+  kind: SessionKind | string;
+  source: string | null;
 }
 export interface HermesTranscriptRow {
   role?: string;

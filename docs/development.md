@@ -265,3 +265,24 @@ SHELLGUARDIAN_SUPERVISOR_LIVE=1 node scripts/supervisor-acceptance.mjs
 `SG_SUPERVISOR`, `SG_WORKER`, `SG_BOARD`, `SG_SCENARIOS=1,3`, and `SG_KEEP=1` adjust the
 run. Tasks dispatch about once a minute, so a full run takes several minutes. Keep the
 Kanban tab open to watch it.
+
+## Live Hermes checks (opt-in)
+
+Read-only Rust tests against the real installation, each gated by an environment
+variable and run with `-- --ignored --nocapture`:
+
+```sh
+SHELLGUARDIAN_TEST_KANBAN=1 cargo test -p shellguardian live_kanban -- --ignored --nocapture
+SHELLGUARDIAN_TEST_HERMES_SESSIONS=<profile> cargo test -p shellguardian live_sessions -- --ignored --nocapture
+SHELLGUARDIAN_TEST_HERMES_GATEWAY=<profile> cargo test -p shellguardian live_gateway -- --ignored --nocapture
+SHELLGUARDIAN_TEST_HERMES_CHAT=<profile> cargo test -p shellguardian live_chat -- --ignored --nocapture
+```
+
+The gateway test needs a running gateway and never starts one. The chat test sends two
+tiny messages and spends a little inference on that profile's provider.
+
+`SHELLGUARDIAN_SMOKE_HERMES=live` makes the native smoke walk every Supervisor tab
+against the real Hermes, strictly read-only, and save `test-results/native-supervisor-live-*.png`.
+`SHELLGUARDIAN_SMOKE_SKIP_UPDATE=1` skips only the OpenShell update check, for when
+GitHub rate-limits the machine. The older `absent` and `detected` modes assume Hermes
+is not installed in `~/.local/bin`.

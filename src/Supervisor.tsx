@@ -1,166 +1,43 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from 'react';
+// The Supervisor page: ask a local Hermes agent for work and watch it happen.
+import { useCallback, useEffect, useState } from 'react';
 import {
   BrainCircuit,
   Download,
   ExternalLink,
-  ShieldAlert,
   LoaderCircle,
-  MessageSquarePlus,
+  Play,
   RefreshCw,
-  Send,
+  ShieldAlert,
   TerminalSquare,
-  UserPlus,
 } from 'lucide-react';
 import * as api from './api';
 import AgentTerminal from './AgentTerminal';
-import {
-  ChatTasks,
-  KanbanPanel,
-  PrepareSupervisor,
-  ProviderPanel,
-  SchedulesPanel,
-  SessionsPanel,
-} from './SupervisorPanels';
-import type {
-  HermesDiscovery,
-  HermesProfile,
-  HermesTerminalTarget,
-  InstallerPreview,
-} from './types';
+import './supervisor.css';
+import { AgentsTab } from './supervisor/AgentsTab';
+import { BoardTab } from './supervisor/BoardTab';
+import { ChatTab } from './supervisor/ChatTab';
+import { SchedulesTab } from './supervisor/SchedulesTab';
+import { SessionsTab } from './supervisor/SessionsTab';
+import { TaskDrawer } from './supervisor/TaskDrawer';
+import { useBoard, useLoad, useRunningDetails, useVisibleInterval } from './supervisor/hooks';
+import { useHermes, type Hermes } from './supervisor/useHermes';
+import type { HermesModelOptions, HermesTerminalTarget, InstallerPreview } from './types';
 
-const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const DEFAULT_SUPERVISOR = 'guanyu';
-const REFRESH_INTERVAL_MS = 60_000;
-const MESSAGE_LIMIT = 16 * 1024;
+export { useHermes };
 
-const TABS = ['chat', 'agents', 'sessions', 'kanban', 'schedules'] as const;
+const TABS = ['chat', 'board', 'agents', 'sessions', 'schedules'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   chat: 'Chat',
+  board: 'Board',
   agents: 'Agents',
   sessions: 'Sessions',
-  kanban: 'Kanban',
   schedules: 'Schedules',
 };
+const USAGE_REFRESH_MS = 5 * 60_000;
 
-type Message = { id: number; role: 'user' | 'supervisor' | 'error'; text: string };
-type Conversation = { sessionId: string | null; messages: Message[] };
-
-/** Shared, in-memory Hermes state for the Supervisor page and sidebar status. */
-export function useHermes() {
-  const available = api.desktopMode || api.previewMode;
-  const [discovery, setDiscovery] = useState<HermesDiscovery | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<Record<string, Conversation>>({});
-  const [sending, setSending] = useState(false);
-  const nextId = useRef(1);
-
-  const refresh = useCallback(async () => {
-    if (!available) return;
-    setLoading(true);
-    try {
-      setDiscovery(await api.discoverHermes());
-      setError(null);
-    } catch (e) {
-      setError(api.errorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [available]);
-
-  useEffect(() => {
-    void refresh();
-    if (!available) return;
-    const timer = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [available, refresh]);
-
-  const profiles = discovery?.profiles ?? [];
-  const supervisor: HermesProfile | null =
-    profiles.find((p) => p.name === chosen) ??
-    profiles.find((p) => p.name === DEFAULT_SUPERVISOR) ??
-    profiles.find((p) => p.active) ??
-    profiles[0] ??
-    null;
-
-  const send = useCallback(
-    async (text: string) => {
-      if (!supervisor || sending) return false;
-      const profile = supervisor.name;
-      const current = conversations[profile] ?? { sessionId: null, messages: [] };
-      const push = (role: Message['role'], body: string) => ({
-        id: nextId.current++,
-        role,
-        text: body,
-      });
-      setConversations((all) => ({
-        ...all,
-        [profile]: { ...current, messages: [...current.messages, push('user', text)] },
-      }));
-      setSending(true);
-      try {
-        const reply = await api.hermesChat(profile, text, current.sessionId);
-        setConversations((all) => {
-          const latest = all[profile] ?? current;
-          return {
-            ...all,
-            [profile]: {
-              sessionId: reply.sessionId ?? latest.sessionId,
-              messages: [...latest.messages, push('supervisor', reply.reply)],
-            },
-          };
-        });
-      } catch (e) {
-        setConversations((all) => {
-          const latest = all[profile] ?? current;
-          return {
-            ...all,
-            [profile]: {
-              ...latest,
-              messages: [...latest.messages, push('error', api.errorMessage(e))],
-            },
-          };
-        });
-      } finally {
-        setSending(false);
-      }
-      return true;
-    },
-    [conversations, sending, supervisor],
-  );
-
-  const resetConversation = useCallback((profile: string) => {
-    setConversations((all) => ({ ...all, [profile]: { sessionId: null, messages: [] } }));
-  }, []);
-
-  return {
-    available,
-    discovery,
-    loading,
-    error,
-    refresh,
-    supervisor,
-    choose: setChosen,
-    conversation: supervisor ? conversations[supervisor.name] : undefined,
-    sending,
-    send,
-    resetConversation,
-  };
-}
-
-export type HermesController = ReturnType<typeof useHermes>;
-
-/** Sidebar status row, mirroring the OpenShell runtime footer. */
-export function HermesFoot({ hermes, onOpen }: { hermes: HermesController; onOpen: () => void }) {
+/** Sidebar status: the supervisor's Hermes gateway, beside OpenShell's. */
+export function HermesFoot({ hermes, onOpen }: { hermes: Hermes; onOpen: () => void }) {
   const running = hermes.supervisor?.gateway === 'running';
   const status = api.previewMode
     ? 'Sample preview'
@@ -195,128 +72,187 @@ export function HermesFoot({ hermes, onOpen }: { hermes: HermesController; onOpe
   );
 }
 
-export default function Supervisor({
+/** Review-then-run flow for Hermes's official installer. */
+function InstallCard({
   hermes,
+  onRun,
+  installer,
+  onInstaller,
   onToast,
 }: {
-  hermes: HermesController;
+  hermes: Hermes;
+  onRun: (sha256: string) => void;
+  installer: InstallerPreview | null;
+  onInstaller: (preview: InstallerPreview | null) => void;
   onToast: (message: string) => void;
 }) {
-  const [tab, setTab] = useState<Tab>('chat');
-  const [kanbanFocus, setKanbanFocus] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
-  const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [terminal, setTerminal] = useState<HermesTerminalTarget | null>(null);
-  const [installer, setInstaller] = useState<InstallerPreview | null>(null);
   const [downloading, setDownloading] = useState(false);
-  const [installError, setInstallError] = useState<string | null>(null);
-  const transcript = useRef<HTMLDivElement>(null);
-  const composer = useRef<HTMLTextAreaElement>(null);
-  const { discovery, supervisor, conversation } = hermes;
-  const messages = conversation?.messages ?? [];
-  const profiles = discovery?.profiles ?? [];
-  const hasDefaultSupervisor = profiles.some((p) => p.name === DEFAULT_SUPERVISOR);
-
-  useEffect(() => {
-    transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
-  }, [messages.length, hermes.sending]);
-
-  function configure(profile: string) {
-    setTerminal({ hermes: 'setup', profile });
-  }
-
-  function chooseProvider(profile: string) {
-    hermes.choose(profile);
-    setTab('agents');
-    window.setTimeout(
-      () =>
-        document
-          .querySelector('[data-provider-panel]')
-          ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-      50,
-    );
-  }
-
-  function signIn(profile: string) {
-    setTerminal({ hermes: 'model', profile });
-  }
-
-  function chatWith(profile: string) {
-    hermes.choose(profile);
-    setTab('chat');
-    window.setTimeout(() => {
-      composer.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      composer.current?.focus();
-    }, 50);
-  }
-
-  function switchTab(next: Tab) {
-    setTab(next);
-    document.getElementById(`supervisor-tab-${next}`)?.focus();
-  }
-
-  async function downloadInstaller() {
-    setInstallError(null);
+  const [error, setError] = useState<string | null>(null);
+  async function download() {
+    setError(null);
     setDownloading(true);
     try {
-      setInstaller(await api.prepareHermesInstaller());
+      onInstaller(await api.prepareHermesInstaller());
     } catch (e) {
-      setInstallError(api.errorMessage(e));
+      setError(api.errorMessage(e));
     } finally {
       setDownloading(false);
     }
   }
+  return (
+    <section className="settings-card sv-install" aria-label="Install Hermes">
+      <div className="settings-heading">
+        <div className="provider-icon">
+          <BrainCircuit size={23} />
+        </div>
+        <div>
+          <h3>Set up a supervisor</h3>
+          <p>Hermes is not installed on this computer.</p>
+        </div>
+      </div>
+      <p className="muted-copy">
+        ShellGuardian can download Hermes's official installer, show it to you, and run it here once
+        you approve. It installs into your home folder (~/.hermes and ~/.local/bin) and may ask for
+        your password to add one system library. Then create a supervisor agent and configure its
+        provider.
+      </p>
+      {installer && (
+        <section className="installer-review" aria-label="Installer review">
+          <div className="installer-warning">
+            <ShieldAlert size={18} />
+            <p>
+              This script comes from Hermes's website and is not signed. ShellGuardian will run only
+              this exact file. Review it if you are unsure.
+            </p>
+          </div>
+          <div className="settings-row">
+            <span>Source</span>
+            <code>{installer.url}</code>
+          </div>
+          <div className="settings-row">
+            <span>SHA-256</span>
+            <code>{installer.sha256}</code>
+          </div>
+          <div className="settings-row">
+            <span>Size</span>
+            <strong>{installer.size.toLocaleString()} bytes</strong>
+          </div>
+          <details className="hermes-profiles">
+            <summary>Read the installer script</summary>
+            <pre>{installer.script}</pre>
+          </details>
+        </section>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="settings-buttons">
+        {installer ? (
+          <button className="button primary" onClick={() => onRun(installer.sha256)}>
+            <TerminalSquare size={16} />
+            Run installer
+          </button>
+        ) : (
+          <button className="button primary" disabled={downloading} onClick={() => void download()}>
+            {downloading ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
+            Download installer
+          </button>
+        )}
+        <button
+          className="button"
+          onClick={() => {
+            void api.openHermesInstallGuide().catch((e) => onToast(api.errorMessage(e)));
+          }}
+        >
+          Installation guide
+          <ExternalLink size={15} />
+        </button>
+        <button className="button" disabled={hermes.loading} onClick={() => void hermes.refresh()}>
+          {hermes.loading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+          Refresh
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export default function Supervisor({
+  hermes,
+  onToast,
+}: {
+  hermes: Hermes;
+  onToast: (message: string) => void;
+}) {
+  const [tab, setTab] = useState<Tab>('chat');
+  const [terminal, setTerminal] = useState<HermesTerminalTarget | null>(null);
+  const [installer, setInstaller] = useState<InstallerPreview | null>(null);
+  const [archived, setArchived] = useState(false);
+  const [openTask, setOpenTask] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const { discovery, supervisor, profiles } = hermes;
+  const installed = discovery?.installed === true;
+  const name = supervisor?.name ?? null;
+
+  // The board and the selected agent's usage are shared by several tabs.
+  const board = useBoard(archived);
+  const running = useRunningDetails(board.active, board.tasks, board.version);
+  const usage = useLoad<HermesModelOptions>(
+    () =>
+      name && installed
+        ? api.hermesModelOptions(name, false)
+        : Promise.reject(new Error('No agent selected.')),
+    [name, installed],
+  );
+  useVisibleInterval(() => usage.reload(true), USAGE_REFRESH_MS, Boolean(name && installed));
+  const gatewayRunning = supervisor?.gateway === 'running';
+  // Usage needs the gateway: fetch it again once the gateway comes up.
+  const reloadUsage = usage.reload;
+  useEffect(() => {
+    if (gatewayRunning) void reloadUsage(true);
+  }, [gatewayRunning, reloadUsage]);
+
+  const refreshHermes = hermes.refresh;
+  const refreshAll = useCallback(async () => {
+    await refreshHermes();
+    void reloadUsage(true);
+  }, [refreshHermes, reloadUsage]);
 
   function closeTerminal() {
     const finished = terminal;
     setTerminal(null);
     if (finished?.hermes === 'install') setInstaller(null);
-    void hermes.refresh();
+    void refreshAll();
   }
-
-  async function create(event: FormEvent) {
-    event.preventDefault();
-    const name = newName.trim();
-    if (!PROFILE_NAME.test(name)) {
-      setFormError(
-        'Use 1 to 64 lowercase letters, digits, hyphens, or underscores, starting with a letter or digit.',
-      );
-      return;
-    }
-    setFormError(null);
-    setCreating(true);
+  function showAgent(profile: string) {
+    hermes.choose(profile);
+    setTab('agents');
+    window.setTimeout(
+      () =>
+        document
+          .querySelector('[data-agent-detail]')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      60,
+    );
+  }
+  async function startGateway() {
+    if (!name) return;
+    setStarting(true);
     try {
-      await api.createHermesProfile(name);
-      setNewName('');
-      hermes.choose(name);
-      onToast(`${name} created. Configure its provider next.`);
-      await hermes.refresh();
+      const status = await api.startHermesGateway(name);
+      if (status.state !== 'ready')
+        onToast(status.message ?? `${name}'s gateway is ${status.state}.`);
     } catch (e) {
-      setFormError(api.errorMessage(e));
+      onToast(api.errorMessage(e));
     } finally {
-      setCreating(false);
+      setStarting(false);
+      void refreshAll();
     }
   }
-
-  async function submit(event?: FormEvent) {
-    event?.preventDefault();
-    const text = draft.trim();
-    if (!text || hermes.sending) return;
-    if (new TextEncoder().encode(text).length > MESSAGE_LIMIT) {
-      onToast('That message is too long to send. Shorten it and try again.');
-      return;
-    }
-    setDraft('');
-    await hermes.send(text);
-  }
-
-  function onKey(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-      event.preventDefault();
-      void submit();
-    }
+  function switchTab(next: Tab) {
+    setTab(next);
+    document.getElementById(`supervisor-tab-${next}`)?.focus();
   }
 
   if (!hermes.available) {
@@ -334,12 +270,12 @@ export default function Supervisor({
     );
   }
 
-  const unconfigured = supervisor !== null && supervisor.model === null;
-  // Hermes reports a placeholder OpenRouter model until a provider is chosen.
-  const placeholder = supervisor !== null && !unconfigured && supervisor.provider === 'auto';
+  const activeCount = board.tasks.filter((task) => task.status === 'running').length;
+  // With no agents yet, the only useful view is the one that creates one.
+  const view: Tab = profiles.length === 0 ? 'agents' : tab;
 
   return (
-    <div className="supervisor-layout">
+    <div className="sv-page">
       {api.previewMode && (
         <p className="muted-copy">
           Sample preview only. No Hermes agent is contacted and replies are illustrative.
@@ -350,406 +286,169 @@ export default function Supervisor({
           {hermes.error}
         </p>
       )}
-
-      {discovery && !discovery.installed && (
-        <section className="settings-card" aria-label="Install Hermes">
-          <div className="settings-heading">
-            <div className="provider-icon">
-              <BrainCircuit size={23} />
-            </div>
-            <div>
-              <h3>Set up a supervisor</h3>
-              <p>Hermes is not installed on this computer.</p>
-            </div>
-          </div>
-          <p className="muted-copy">
-            ShellGuardian can download Hermes's official installer, show it to you, and run it here
-            once you approve. It installs into your home folder (~/.hermes and ~/.local/bin) and may
-            ask for your password to add one system library. Then create a supervisor agent and
-            configure its provider.
-          </p>
-          {installer && (
-            <section className="installer-review" aria-label="Installer review">
-              <div className="installer-warning">
-                <ShieldAlert size={18} />
-                <p>
-                  This script comes from Hermes's website and is not signed. ShellGuardian will run
-                  only this exact file. Review it if you are unsure.
-                </p>
-              </div>
-              <div className="settings-row">
-                <span>Source</span>
-                <code>{installer.url}</code>
-              </div>
-              <div className="settings-row">
-                <span>SHA-256</span>
-                <code>{installer.sha256}</code>
-              </div>
-              <div className="settings-row">
-                <span>Size</span>
-                <strong>{installer.size.toLocaleString()} bytes</strong>
-              </div>
-              <details className="hermes-profiles">
-                <summary>Read the installer script</summary>
-                <pre>{installer.script}</pre>
-              </details>
-            </section>
-          )}
-          {installError && (
-            <p className="form-error" role="alert">
-              {installError}
-            </p>
-          )}
-          <div className="settings-buttons">
-            {installer ? (
-              <button
-                className="button primary"
-                onClick={() => setTerminal({ hermes: 'install', sha256: installer.sha256 })}
-              >
-                <TerminalSquare size={16} />
-                Run installer
-              </button>
-            ) : (
-              <button
-                className="button primary"
-                disabled={downloading}
-                onClick={() => void downloadInstaller()}
-              >
-                {downloading ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
-                Download installer
-              </button>
-            )}
-            <button
-              className="button"
-              onClick={() => {
-                void api.openHermesInstallGuide().catch((e) => onToast(api.errorMessage(e)));
-              }}
-            >
-              Installation guide
-              <ExternalLink size={15} />
-            </button>
-            <button
-              className="button"
-              disabled={hermes.loading}
-              onClick={() => void hermes.refresh()}
-            >
-              {hermes.loading ? (
-                <LoaderCircle size={16} className="spin" />
-              ) : (
-                <RefreshCw size={16} />
-              )}
-              Refresh
-            </button>
-          </div>
-        </section>
-      )}
-
-      {discovery?.installed && profiles.length > 0 && (
-        <div className="supervisor-tabbar">
-          <div className="detail-tabs supervisor-tabs" role="tablist" aria-label="Supervisor views">
-            {TABS.map((name) => (
-              <button
-                id={`supervisor-tab-${name}`}
-                key={name}
-                role="tab"
-                aria-selected={tab === name}
-                tabIndex={tab === name ? 0 : -1}
-                onKeyDown={(event) => {
-                  if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
-                  event.preventDefault();
-                  const step = event.key === 'ArrowRight' ? 1 : TABS.length - 1;
-                  switchTab(TABS[(TABS.indexOf(name) + step) % TABS.length]);
-                }}
-                onClick={() => setTab(name)}
-              >
-                {TAB_LABELS[name]}
-              </button>
-            ))}
-          </div>
-          {profiles.length > 1 && tab !== 'kanban' && (
-            <label className="supervisor-select-label">
-              Agent
-              <select
-                className="supervisor-select"
-                aria-label="Supervisor agent"
-                value={supervisor?.name ?? ''}
-                disabled={hermes.sending}
-                onChange={(e) => hermes.choose(e.target.value)}
-              >
-                {profiles.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-      )}
-
-      {discovery?.installed && profiles.length > 0 && tab === 'chat' && (
-        <section className="settings-card supervisor-chat" aria-label="Supervisor chat">
-          <div className="settings-heading">
-            <div className="provider-icon">
-              <BrainCircuit size={23} />
-            </div>
-            <div>
-              <h3>{supervisor ? `Talk to ${supervisor.name}` : 'No Hermes agents yet'}</h3>
-              <p>
-                {supervisor
-                  ? `${supervisor.model ?? 'No model configured'}${supervisor.provider ? ` via ${supervisor.provider}` : ''} · gateway ${supervisor.gateway ?? 'unknown'}`
-                  : 'Create a supervisor agent below.'}
-              </p>
-            </div>
-          </div>
-
-          {unconfigured && (
-            <div className="supervisor-notice" role="status">
-              <p>
-                {supervisor.name} has no model provider yet. Configure runs Hermes's own setup here;
-                Hermes stores any key you enter, and ShellGuardian never saves or reads it.
-              </p>
-              <button className="button primary" onClick={() => void configure(supervisor.name)}>
-                <TerminalSquare size={16} />
-                Configure {supervisor.name}
-              </button>
-            </div>
-          )}
-          {placeholder && (
-            <div className="supervisor-notice" role="status">
-              <p>
-                {supervisor.name} has no provider chosen, so Hermes falls back to its placeholder
-                default ({supervisor.model} on OpenRouter), which needs an OpenRouter key. Choose
-                the provider you signed in to, such as OpenAI Codex.
-              </p>
-              <button className="button primary" onClick={() => chooseProvider(supervisor.name)}>
-                <TerminalSquare size={16} />
-                Choose provider for {supervisor.name}
-              </button>
-            </div>
-          )}
-
-          {supervisor && (
-            <>
-              <div className="supervisor-transcript" ref={transcript} aria-live="polite">
-                {messages.length === 0 && !hermes.sending && (
-                  <p className="muted-copy">
-                    Ask {supervisor.name} about your agents. Replies come from Hermes on this
-                    computer. Commands Hermes flags as dangerous are blocked here, never
-                    auto-approved.
-                  </p>
-                )}
-                {messages.map((m) => (
-                  <div key={m.id} className={`supervisor-message ${m.role}`}>
-                    <span className="supervisor-role">
-                      {m.role === 'user'
-                        ? 'You'
-                        : m.role === 'error'
-                          ? 'Not delivered'
-                          : supervisor.name}
-                    </span>
-                    <p>{m.text}</p>
-                  </div>
-                ))}
-                {hermes.sending && (
-                  <div className="supervisor-message supervisor pending" role="status">
-                    <LoaderCircle size={14} className="spin" />
-                    {supervisor.name} is working…
-                  </div>
-                )}
-              </div>
-              {conversation?.sessionId && (
-                <ChatTasks
-                  key={conversation.sessionId}
-                  sessionId={conversation.sessionId}
-                  onOpen={(id) => {
-                    setKanbanFocus(id);
-                    setTab('kanban');
-                  }}
-                />
-              )}
-              <form className="supervisor-compose" onSubmit={(e) => void submit(e)}>
-                <textarea
-                  ref={composer}
-                  aria-label={`Message ${supervisor.name}`}
-                  placeholder={
-                    unconfigured
-                      ? `Configure ${supervisor.name} to start chatting`
-                      : `Message ${supervisor.name}`
-                  }
-                  value={draft}
-                  rows={2}
-                  disabled={unconfigured}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={onKey}
-                />
-                <div className="supervisor-compose-actions">
-                  <button
-                    type="submit"
-                    className="button primary"
-                    disabled={unconfigured || hermes.sending || !draft.trim()}
-                  >
-                    <Send size={15} />
-                    Send
-                  </button>
-                  <button
-                    type="button"
-                    className="button"
-                    disabled={hermes.sending || messages.length === 0}
-                    onClick={() => hermes.resetConversation(supervisor.name)}
-                  >
-                    <MessageSquarePlus size={15} />
-                    New conversation
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
-        </section>
-      )}
-
-      {discovery?.installed && (tab === 'agents' || profiles.length === 0) && (
-        <section className="settings-card" aria-label="Hermes agents">
-          <div className="section-label">
-            <UserPlus size={20} />
-            <h3>Agents</h3>
-          </div>
-          {profiles.map((p) => (
-            <div
-              className={`settings-row${p.name === supervisor?.name ? ' selected' : ''}`}
-              key={p.name}
-            >
-              <span>
-                {p.name}
-                {p.active ? ' (active)' : ''}
-                {p.name === supervisor?.name ? ' · selected' : ''}
-              </span>
-              <span className="supervisor-row-actions">
-                <strong>
-                  {p.model === null
-                    ? 'Not configured'
-                    : p.provider === 'auto'
-                      ? 'No provider chosen'
-                      : `${p.model}${p.provider ? ` via ${p.provider}` : ''}`}
-                </strong>
-                <button
-                  className="button compact"
-                  aria-label={`Chat with ${p.name}`}
-                  onClick={() => chatWith(p.name)}
-                >
-                  Chat
-                </button>
-                <button
-                  className="button compact"
-                  aria-label={`Choose provider for ${p.name}`}
-                  onClick={() => chooseProvider(p.name)}
-                >
-                  Provider
-                </button>
-                <button className="button compact" onClick={() => void configure(p.name)}>
-                  Configure
-                </button>
-              </span>
-            </div>
-          ))}
-          {profiles.length === 0 && discovery.profileText.trim() && (
-            <pre className="hermes-profiles">{discovery.profileText}</pre>
-          )}
-          <form className="supervisor-create" onSubmit={(e) => void create(e)}>
-            <label className="field-label" htmlFor="new-hermes-agent">
-              New agent
-            </label>
-            <div className="workspace-form">
-              <input
-                id="new-hermes-agent"
-                value={newName}
-                placeholder={hasDefaultSupervisor ? 'agent-name' : DEFAULT_SUPERVISOR}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(e) => setNewName(e.target.value)}
-              />
-              <button className="button primary" disabled={creating || !newName.trim()}>
-                {creating ? <LoaderCircle size={16} className="spin" /> : <UserPlus size={16} />}
-                Create agent
-              </button>
-            </div>
-            {!hasDefaultSupervisor && (
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => setNewName(DEFAULT_SUPERVISOR)}
-              >
-                Use the suggested supervisor name, {DEFAULT_SUPERVISOR}
-              </button>
-            )}
-            <p className="muted-copy">
-              Creates an empty Hermes profile. Existing profiles, credentials, and settings are
-              never copied or changed.
-            </p>
-            {formError && (
-              <p className="form-error" role="alert">
-                {formError}
-              </p>
-            )}
-          </form>
-          <div className="settings-buttons">
-            <button
-              className="button"
-              disabled={hermes.loading}
-              onClick={() => void hermes.refresh()}
-            >
-              {hermes.loading ? (
-                <LoaderCircle size={16} className="spin" />
-              ) : (
-                <RefreshCw size={16} />
-              )}
-              Refresh
-            </button>
-          </div>
-        </section>
-      )}
-
-      {discovery?.installed && supervisor && tab === 'agents' && (
-        <div data-provider-panel>
-          <ProviderPanel
-            key={supervisor.name}
-            profile={supervisor.name}
-            onChanged={() => void hermes.refresh()}
-            onSignIn={signIn}
-          />
-          <PrepareSupervisor
-            key={`prepare-${supervisor.name}`}
-            profile={supervisor.name}
-            onChanged={() => void hermes.refresh()}
-          />
-        </div>
-      )}
-      {discovery?.installed && supervisor && tab === 'sessions' && (
-        <SessionsPanel
-          key={supervisor.name}
-          profile={supervisor.name}
-          onStarted={() => void hermes.refresh()}
-        />
-      )}
-      {discovery?.installed && profiles.length > 0 && tab === 'kanban' && (
-        <KanbanPanel
-          profiles={profiles}
-          focus={kanbanFocus}
-          onGatewayChanged={() => void hermes.refresh()}
-        />
-      )}
-      {discovery?.installed && supervisor && tab === 'schedules' && (
-        <SchedulesPanel
-          key={supervisor.name}
-          profile={supervisor.name}
-          onStarted={() => void hermes.refresh()}
-        />
-      )}
-
       {!discovery && !hermes.error && (
         <p className="muted-copy" role="status">
           Checking for Hermes…
         </p>
+      )}
+
+      {discovery && !discovery.installed && (
+        <InstallCard
+          hermes={hermes}
+          installer={installer}
+          onInstaller={setInstaller}
+          onRun={(sha256) => setTerminal({ hermes: 'install', sha256 })}
+          onToast={onToast}
+        />
+      )}
+
+      {installed && (
+        <div className="sv-tabbar">
+          <div className="detail-tabs sv-tabs" role="tablist" aria-label="Supervisor views">
+            {TABS.map((entry) => (
+              <button
+                id={`supervisor-tab-${entry}`}
+                key={entry}
+                role="tab"
+                aria-selected={view === entry}
+                aria-controls="supervisor-panel"
+                tabIndex={view === entry ? 0 : -1}
+                disabled={profiles.length === 0 && entry !== 'agents'}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+                  event.preventDefault();
+                  const step = event.key === 'ArrowRight' ? 1 : TABS.length - 1;
+                  switchTab(TABS[(TABS.indexOf(entry) + step) % TABS.length]);
+                }}
+                onClick={() => setTab(entry)}
+              >
+                {TAB_LABELS[entry]}
+                {entry === 'board' && activeCount > 0 && (
+                  <span className="count-badge" aria-label={`${activeCount} running`}>
+                    {activeCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {supervisor && (
+            <div className="sv-agent-bar">
+              {profiles.length > 1 && (
+                <label className="sv-inline-field">
+                  Agent
+                  <select
+                    className="sv-select"
+                    aria-label="Supervisor agent"
+                    value={supervisor.name}
+                    disabled={hermes.busy}
+                    onChange={(e) => hermes.choose(e.target.value)}
+                  >
+                    {profiles.map((profile) => (
+                      <option key={profile.name} value={profile.name}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {gatewayRunning ? (
+                <span
+                  className="status good"
+                  aria-label={`${supervisor.name}'s gateway is running`}
+                >
+                  <span className="status-dot" />
+                  Gateway running
+                </span>
+              ) : (
+                <button
+                  className="button compact"
+                  disabled={starting}
+                  title="Tasks and schedules only run while the gateway is running"
+                  onClick={() => void startGateway()}
+                >
+                  {starting ? (
+                    <LoaderCircle size={14} className="spin" aria-hidden="true" />
+                  ) : (
+                    <Play size={14} aria-hidden="true" />
+                  )}
+                  Start gateway
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {installed && (
+        <div
+          id="supervisor-panel"
+          role="tabpanel"
+          aria-labelledby={`supervisor-tab-${view}`}
+          className="sv-panel"
+        >
+          {view === 'chat' && supervisor && (
+            <ChatTab
+              hermes={hermes}
+              board={board}
+              running={running}
+              usage={usage}
+              onOpenTask={setOpenTask}
+              onShowBoard={() => setTab('board')}
+              onConfigure={(profile) => setTerminal({ hermes: 'setup', profile })}
+              onChooseProvider={showAgent}
+            />
+          )}
+          {view === 'board' && (
+            <BoardTab
+              board={board}
+              profiles={profiles}
+              running={running}
+              archived={archived}
+              onArchived={setArchived}
+              selected={openTask}
+              onOpen={setOpenTask}
+              onGatewayChanged={() => void refreshAll()}
+            />
+          )}
+          {view === 'agents' && (
+            <AgentsTab
+              hermes={hermes}
+              onChat={(profile) => {
+                hermes.choose(profile);
+                setTab('chat');
+              }}
+              onConfigure={(profile) => setTerminal({ hermes: 'setup', profile })}
+              onSignIn={(profile) => setTerminal({ hermes: 'model', profile })}
+              onToast={onToast}
+            />
+          )}
+          {view === 'sessions' && supervisor && (
+            <SessionsTab
+              key={supervisor.name}
+              profile={supervisor.name}
+              onGatewayChanged={() => void refreshAll()}
+            />
+          )}
+          {view === 'schedules' && supervisor && (
+            <SchedulesTab
+              key={supervisor.name}
+              profile={supervisor.name}
+              onGatewayChanged={() => void refreshAll()}
+            />
+          )}
+        </div>
+      )}
+
+      {openTask && board.active && (
+        <TaskDrawer
+          board={board.active}
+          id={openTask}
+          version={board.version}
+          profiles={profiles}
+          onClose={() => setOpenTask(null)}
+          onChanged={() => void board.refresh()}
+          onGatewayChanged={() => void refreshAll()}
+        />
       )}
       {terminal && <AgentTerminal target={terminal} onClose={closeTerminal} />}
     </div>

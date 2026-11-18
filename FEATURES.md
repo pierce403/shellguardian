@@ -239,98 +239,104 @@ Test Criteria:
 
 ## Hermes supervisor
 
-- **Stability**: initial implementation, native acceptance of chat pending
-- **Description**: A Supervisor page, below Overview, that installs Hermes with its
-  official installer after the user reviews it, talks to a local Hermes agent,
-  creates new Hermes agents (profiles), and runs Hermes's own provider setup in an
-  in-app terminal. Tabs cover Chat, Agents (with provider and model setup), Sessions,
-  Kanban, and Schedules. The sidebar shows the supervisor profile's Hermes gateway
-  state beside OpenShell's.
+- **Stability**: implemented and verified against a live Hermes 0.16.0 supervisor;
+  sandboxed execution is the next milestone (see the roadmap below)
+- **Description**: A Supervisor page, below Overview, for asking a local Hermes agent
+  for work and watching it happen. Tabs: Chat (with live work and usage limits
+  alongside), Board (the kanban), Agents (model, provider, keys, supervisor duties),
+  Sessions, and Schedules. It also installs Hermes with its official installer after
+  the user reviews it. The sidebar shows the supervisor's gateway state beside
+  OpenShell's.
 - **Properties**:
-  - Discover profiles read-only from `hermes profile list`, every 60 seconds and on demand.
+  - Discovery: profiles from `hermes profile list` and each profile's provider from
+    `hermes profile show`, every 60 seconds and on demand. `auto` is flagged as
+    Hermes's placeholder OpenRouter default.
   - Create only new, empty profiles with `--no-alias`; never clone or overwrite.
-  - Chat one turn at a time through `hermes -p <profile> chat -Q --query=... --resume=...`,
-    bounded in size and time. Conversations live in memory only.
+  - Chat: one turn at a time through `hermes -p <profile> chat -Q --format=stream-json
+    --query=... [--resume=...]`, bounded in size and time, run from the home directory.
+    While a turn runs the page polls native progress: reply text so far and the tool
+    calls made, as plain-language steps. Stop interrupts Hermes (SIGINT to the chat
+    process group, then SIGKILL after 8 seconds) and keeps what had arrived. A message
+    sent while a turn is running is kept as a draft. Conversations live in memory only.
+    Token totals are Hermes's running totals for the conversation.
   - Dangerous commands fail closed (`HERMES_INTERACTIVE=1`, no stdin), never auto-approved.
   - Hermes children never inherit provider keys from the desktop environment.
+  - Replies render through a small built-in Markdown subset (paragraphs, lists, bold,
+    inline and fenced code) as React elements; links are plain text and no HTML is injected.
+  - Work alongside chat: running tasks with elapsed time and the latest progress note,
+    blocked tasks, the tasks this conversation created (also listed under the reply
+    that created them), and usage limits.
+  - Usage limits: `model.options` reports usage windows for signed-in subscription
+    providers (for example Claude session and week, Codex week). They are shown as
+    meters; a provider that reports none is shown as unavailable, never zero.
+  - Board: one column per status, a drawer per task (request, result, timeline with
+    worker check-ins folded, runs, worker log tail, worker transcript, comments), a
+    New task dialog, an agent filter, archived toggle, and long columns capped until
+    expanded. The board refetches only when its change signal moves (file metadata of
+    the board database, checked every 1.5 seconds), with a 15 second fallback. A notice
+    appears when an assignee has waiting work but its gateway is stopped.
   - Installation downloads the official script over HTTPS, shows its SHA-256 and text,
     and runs only that exact file, re-hashed, in an in-app terminal with `--skip-setup`.
-  - Provider setup is Hermes's own wizard in an in-app terminal. Its output is shown,
-    never logged or persisted; ShellGuardian never reads stored keys. "Provider" runs
-    only `hermes -p <profile> setup model`. Discovery reads each profile's provider from
-    `hermes profile show`; `auto` is flagged as Hermes's placeholder OpenRouter default.
-  - Each agent row has Chat, which selects it in the chat panel and focuses the composer.
-  - Gateway features use Hermes's local JSON-RPC WebSocket. Native code mints a
-    single-use, profile-scoped ticket with `hermes -p <profile> gateway attach --json`,
-    sends it only as the `hermes-gateway-ticket.<T>` subprotocol to a validated loopback
-    `ws://…/api/ws`, waits for `gateway.ready`, makes one fixed call, declines any
-    server request, and closes. The webview gets whitelisted scalar fields only.
-  - Start gateway (`attach --start`) runs only on an explicit click, with the cleared
-    environment. Status checks never start a gateway.
-  - Provider and model: `model.options` lists providers, models, and sign-in state;
-    `profiles.configure` applies Hermes's own validated model assignment (with its
-    expensive-model confirmation); `model.save_key` hands an API key to Hermes. OAuth
-    providers (Codex, Nous, xAI) still sign in through `setup model` in the terminal.
-  - Sessions: `session.list` (stored scope) and read-only `session.transcript`.
-    Schedules: `cron.manage` with `action: list`.
-  - Kanban uses the Hermes CLI (no RPC read API exists): `boards list`, `list`, `show`
-    with `--json`, plus `create` and `comment`. Free text is passed as `--opt=value` or
-    after `--`; IDs must start alphanumeric. Assigned tasks run when that agent's
-    gateway runs.
-  - Live board: the Kanban tab polls every 3 seconds while visible. "Now running" lists
-    active tasks with elapsed time and the latest heartbeat note. A task shows its event
-    timeline, runs, worker log tail (`kanban log --tail`), and the worker's transcript
-    (session ID from the `owner_admitted` event). Event payloads are projected to a fixed
-    set of scalar fields. Chat lists the tasks its session created and links to them.
+  - Provider setup: `model.options` (including providers not set up yet), Hermes's own
+    validated assignment `profiles.configure` with its expensive-model confirmation,
+    and `model.save_key` for API-key providers. Sign-in providers (Codex, Nous, xAI)
+    use `hermes -p <profile> setup model` in the in-app terminal. The full wizard stays
+    available. Terminal output is shown, never logged or persisted.
+  - Gateway RPC: native code mints a single-use, profile-scoped ticket with `hermes -p
+    <profile> gateway attach --json`, sends it only as the `hermes-gateway-ticket.<T>`
+    subprotocol to a validated loopback `ws://…/api/ws`, waits for `gateway.ready`,
+    makes one fixed call, declines any server request, and closes. The webview gets
+    whitelisted scalar fields only. Start gateway (`attach --start`) runs only on an
+    explicit click.
+  - Sessions: every session from `hermes sessions list` (the gateway's own list hides
+    one-shot chats and kanban worker runs), labelled chat, task run, or conversation,
+    with read-only transcripts from `session.transcript`. Schedules: `cron.manage` list.
+  - Kanban uses the Hermes CLI: `boards list`, `list [--archived]`, `show`, `log`,
+    `stats` with `--json`, plus `create` and `comment`. Free text is passed as
+    `--opt=value` or after `--`; IDs must start alphanumeric.
   - "Prepare as supervisor" (explicit click) enables the `kanban` toolset by re-sending
-    the profile's currently enabled toolsets plus `kanban` (`profiles.describe` then
+    the profile's enabled toolsets plus `kanban` (`profiles.describe` then
     `profiles.configure`, which has replace semantics) and installs the ShellGuardian
     playbook skill `shellguardian-supervisor`. It refuses to replace a same-named skill
     it does not own and never touches `SOUL.md`.
+  - A second launch focuses the running window (single-instance plugin).
   - Remote host support is not implemented.
 - **Test criteria**:
-  - [x] Rust tests: name/session validation, profile-table parsing, error and
-    reply bounding, flag-safe arguments, environment allowlist, fail-closed
-    approval variable, and one-turn locking with stub Hermes executables (2026-11-18).
-  - [x] Live Hermes 0.16.0 in a temporary `HOME`/`HERMES_HOME`: discovery, creation
-    without `.env` or alias, refusal to recreate. No inference (2026-11-18).
-  - [x] Chromium: preview chat, Enter/Shift+Enter, agent creation and validation,
-    unconfigured gating, session resume IDs, error display, sidebar status (2026-11-18).
-  - [x] Native WebKit against the live gateway: sidebar status and Supervisor page
-    for absent and detected Hermes (2026-11-18).
+  - [x] Rust (85 tests): name and session validation, profile and session table
+    parsing, stream-json handling (only allowlisted tool arguments reach the reply),
+    live progress, one-turn locking, Stop and timeout killing the process group,
+    environment allowlist, installer staging and hash binding, loopback URL and ticket
+    validation, a fake loopback gateway (subprotocol, `gateway.ready`, declined server
+    requests, key redaction before truncation), result projections, flag-safe kanban
+    arguments, trusted database paths, and a change signal that ignores readers
+    (2026-11-18).
+  - [x] Chromium (47 tests): chat progress, drafts, Stop, retry, Markdown rendering,
+    reply-linked tasks, the live board, drawer, new task, filters, capped columns,
+    folded check-ins, provider and key flows (the key never stays in the page), gateway
+    notices that never start a gateway on their own, sessions, schedules, keyboard
+    tabs, and that the board refetches only when the change signal moves (2026-11-18).
+  - [x] Live Hermes 0.16.0, read-only: the Rust gateway client against the real gateway
+    (`model.options` with real usage windows, `profiles.describe`, `session.transcript`
+    including a kanban worker's), the session list (13 real sessions, kinds correct),
+    and kanban reads with a change signal that stayed stable across reads (2026-11-18).
+  - [x] Live streaming chat: two real turns through the new chat path replied, streamed
+    progress, reported tokens, and resumed the session (2026-11-18).
+  - [x] `scripts/supervisor-acceptance.mjs` against the live supervisor (guanyu, Codex,
+    board `sg-acceptance`): 4/4 passed. Single task created, tracked, and completed;
+    dependent task started after its parent; a plain question created no task; an
+    impossible task ended blocked (2026-11-18).
+  - [x] Native WebKit, read-only live mode: every Supervisor tab rendered real data,
+    no browser storage was used (2026-11-18). The OpenShell update check was skipped in
+    that run because GitHub rate-limited the machine.
+  - [x] A second launch exits 0 and the first instance keeps running, with no panic
+    (two real launches in a private display and bus, 2026-11-18).
   - [x] Live download of the official installer (68,015 bytes, staged owner-only,
     hash-bound); the script still supports `--skip-setup`. Not run (2026-11-18).
-  - [x] Chromium: install review, hash-bound run, terminal exit, and refresh (2026-11-18).
-  - [x] Native WebKit: Hermes's real setup wizard renders in the in-app terminal for an
-    isolated profile and closes cleanly (2026-11-18).
-  - [x] Rust tests: loopback URL and ticket validation, attach parsing that never
-    serializes the ticket, frame classification, result projections, flag-safe kanban
-    arguments, and a fake loopback gateway checking the subprotocol, `gateway.ready`
-    ordering, interleaved events, declined server requests, and key redaction that
-    happens before truncation (2026-11-18).
-  - [x] Chromium preview: tabs, Start gateway, key save clears the field, model change,
-    sessions and transcript, schedules, kanban columns, create, and comment (2026-11-18).
-  - [x] Rust tests: timeline/run projection drops paths, PIDs, and metadata; toolset
-    round trip; skill install never replaces a foreign skill (2026-11-18).
-  - [x] Chromium preview: a created task moves ready → running → done on its own, the
-    running strip shows its progress note, the timeline, worker log, and worker
-    transcript render, a chat request links to its task, and supervisor preparation
-    reports its result (2026-11-18).
-  - [x] `scripts/supervisor-acceptance.mjs` against the live supervisor (guanyu, Codex,
-    Hermes 0.16.0, board `sg-acceptance`): 4/4 passed in about four minutes. Single task
-    created, tracked, and completed with a result; dependent task started after its
-    parent finished; a plain question created no task; an impossible task ended blocked.
-    The owner started the gateway and ran "Prepare as supervisor" in the app first, so
-    live attach, `profiles.describe`, and `profiles.configure` worked (2026-11-18).
-    The five supervisor chat turns used about 446,000 input tokens.
-  - [ ] Live gateway: attach, `model.options`, `profiles.configure`, `session.list`,
-    `session.transcript`, `cron.manage` against a running Hermes 0.16 gateway. The
-    protocol was taken from the installed source; no live gateway was running and the
-    agent environment may not start one.
+  - [ ] Stop on a real long-running turn (verified with stub processes only).
+  - [ ] Native WebKit for the redesigned page with an isolated Hermes: now that Hermes
+    is installed per-user, the isolated smoke modes need a redirected home directory.
   - [ ] Run the official installer end to end on a clean account.
-  - [ ] Live chat with a configured disposable profile and known test credentials.
   - [ ] Confirm a dangerous command is denied in a live chat turn.
-  - [ ] Complete the setup wizard by hand; confirm no credential reaches the webview.
   - [ ] SSH-only remote discovery and chat using strict host-key verification.
 
 ## Supervisor orchestration roadmap

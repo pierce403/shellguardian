@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   ArrowDownToLine,
@@ -36,6 +36,7 @@ import {
   BrainCircuit,
 } from 'lucide-react';
 import * as api from './api';
+import { IconButton, Modal } from './ui';
 import AppUpdates, { useAppUpdates } from './AppUpdates';
 import SshConnections, { useSshConnections } from './SshConnections';
 import AgentTerminal from './AgentTerminal';
@@ -85,30 +86,6 @@ function Status({ phase }: { phase: string }) {
       <span className="status-dot" />
       {phase}
     </span>
-  );
-}
-
-function IconButton({
-  icon: Icon,
-  label,
-  onClick,
-  disabled = false,
-}: {
-  icon: LucideIcon;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      className="icon-button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <Icon size={18} aria-hidden="true" />
-    </button>
   );
 }
 
@@ -163,56 +140,6 @@ function useSnapshot(selection: Selection) {
     error,
     refresh: useCallback(() => setRevision((value) => value + 1), []),
   };
-}
-
-function Modal({
-  children,
-  className = '',
-  label,
-  onClose,
-  busy = false,
-}: {
-  children: ReactNode;
-  className?: string;
-  label: string;
-  onClose: () => void;
-  busy?: boolean;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current!;
-    const previous = document.activeElement;
-    dialog.showModal();
-    return () => {
-      dialog.close();
-      if (previous instanceof HTMLElement) previous.focus();
-    };
-  }, []);
-  return (
-    <dialog
-      ref={ref}
-      className={className}
-      aria-label={label}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) {
-          const box = event.currentTarget.getBoundingClientRect();
-          if (
-            event.clientX < box.left ||
-            event.clientX > box.right ||
-            event.clientY < box.top ||
-            event.clientY > box.bottom
-          )
-            onClose();
-        }
-      }}
-    >
-      {children}
-    </dialog>
-  );
 }
 
 function UsageCoverage({ compact = false }: { compact?: boolean }) {
@@ -1392,7 +1319,7 @@ export default function App() {
                   : page === 'agents'
                     ? 'One place to see each sandbox and the boundaries around it.'
                     : page === 'supervisor'
-                      ? 'Talk to your Hermes supervisor, or set up a new agent.'
+                      ? 'Ask your supervisor for work, then watch it happen.'
                       : page === 'credentials'
                         ? 'Know which providers are available, and choose who gets access.'
                         : page === 'activity'

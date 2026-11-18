@@ -28,11 +28,19 @@ focused milestones. Do not disturb existing agents to test the application.
   installed `hermes` executable (per-user `~/.local/bin` first, then absolute
   `PATH` entries only) with fixed arguments, null stdin, a timeout, and a cleared
   environment allowlist, so provider keys exported in the desktop session never
-  reach Hermes's default provider. IPC accepts only a validated profile name, a
-  bounded chat message, a validated session ID, or a fixed terminal action.
-  Chat runs with `HERMES_INTERACTIVE=1` so dangerous-command approval fails
-  closed; never pass `--yolo` or let Hermes's non-interactive auto-approval apply.
-  Never read Hermes credentials, clone a profile, or replace an existing one.
+  reach Hermes's default provider. Run it from the user's home directory: Hermes
+  records the working directory as a session's workspace and runs tools there. IPC
+  accepts only a validated profile name, a bounded chat message, a validated
+  session ID, or a fixed terminal action. Chat runs with `HERMES_INTERACTIVE=1` so
+  dangerous-command approval fails closed; never pass `--yolo` or let Hermes's
+  non-interactive auto-approval apply. Never read Hermes credentials, clone a
+  profile, or replace an existing one.
+- Chat reads Hermes's `--format stream-json` events. Only reply text, tool names,
+  one allowlisted argument for a few known tools (a task title or ID, a skill
+  name), timings, and token counts may reach the webview. Tool inputs and outputs
+  otherwise stay native and are never logged. The chat child runs in its own
+  process group so Stop can interrupt it and a timeout can kill it; the Hermes
+  gateway detaches into its own session and must never be signalled by this.
 - By the owner's decision (2026-11-18), ShellGuardian may install Hermes with its
   official, unsigned `https://hermes-agent.nousresearch.com/install.sh`: download
   over HTTPS without redirects, cap its size, stage it owner-only, show the user
@@ -50,6 +58,14 @@ focused milestones. Do not disturb existing agents to test the application.
   or return it, clear the field after sending, and redact it from errors before
   truncating. Kanban uses fixed `hermes kanban` arguments with text after `--` or in
   `--opt=value` form; creating an assigned task schedules real agent work.
+- Do not poll the Hermes CLI on a timer: each call costs most of a second of CPU.
+  The board's change signal reads only file metadata (size and modification time)
+  of the board database path Hermes itself reported, accepted only as an absolute
+  `.db` path inside the user's home. Never open or parse Hermes's databases. The
+  session list comes from `hermes sessions list` (the gateway's own list hides
+  one-shot chats and kanban worker runs); transcripts come from the gateway.
+- One instance only: `tauri-plugin-single-instance` must stay the first plugin, so
+  a second launch focuses the running window instead of re-running setup.
 - By the owner's decision (2026-11-18), "Prepare as supervisor" may change an
   existing Hermes profile in exactly two ways, on an explicit click: enable the
   `kanban` toolset while keeping every toolset already enabled, and install the
