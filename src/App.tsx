@@ -38,6 +38,7 @@ import * as api from './api';
 import AppUpdates, { useAppUpdates } from './AppUpdates';
 import SshConnections, { useSshConnections } from './SshConnections';
 import AgentTerminal from './AgentTerminal';
+import HermesOnboarding from './HermesOnboarding';
 import type {
   Agent,
   AgentDetail,
@@ -1691,6 +1692,8 @@ export default function App() {
             </>
           )}
           {page === 'openshell' && (
+            <>
+            <HermesOnboarding />
             <OpenShellPage
               data={data}
               gateways={gateways}
@@ -1715,6 +1718,7 @@ export default function App() {
                 void checkUpdates();
               }}
             />
+            </>
           )}
           {page === 'overview' && <UsageCoverage />}
           <footer className="page-footer">
