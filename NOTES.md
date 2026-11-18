@@ -642,3 +642,15 @@ buffers, process-group cleanup, and read/write/resize/close IPC. Native WebKit
 showed hermes-agent 0.16.0's setup wizard (Nous Portal OAuth quick setup or
 bring-your-own-keys) in the in-app terminal for an isolated profile.
 
+
+## Hermes chat `--source` rejected (2026-11-18)
+
+- Hermes 0.16 `chat -Q --source=shellguardian` fails before inference with
+  "Hermes couldn't start the model connection: invalid_params" on stdout, exit 1,
+  empty stderr. The same turn without `--source` replies and resumes normally
+  (session IDs look like `local-<64 hex>`). ShellGuardian no longer passes
+  `--source`, and on a failed turn it shows Hermes's bounded stdout notice
+  instead of the generic "did not return a reply".
+- `hermes setup` "Quick" is Nous Portal OAuth. A provider chosen in a tool's
+  setup step (e.g. `image_gen: openai-codex`) does not set `model.provider`;
+  `profile show` then reports `(auto)` with the placeholder OpenRouter model.

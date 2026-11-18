@@ -40,9 +40,6 @@ const CHAT_TIMEOUT: Duration = Duration::from_secs(600);
 const MESSAGE_LIMIT: usize = 16 * 1024;
 /// Upper bound on one supervisor reply returned to the webview, in characters.
 const REPLY_LIMIT: usize = 128 * 1024;
-/// Session tag so ShellGuardian conversations can be filtered in Hermes.
-const SESSION_SOURCE: &str = "shellguardian";
-
 /// Environment variables Hermes children may inherit. Everything else,
 /// including provider API keys, is removed.
 const HERMES_ENV_ALLOWLIST: &[&str] = &[
@@ -282,15 +279,28 @@ fn parse_session_id(stderr: &str) -> Option<String> {
 
 /// Picks a short, user-facing error from Hermes stderr: its `Error:` line if
 /// present, bounded. Never returns whole stderr, which may include logs.
-fn hermes_error(stderr: &str) -> String {
-    stderr
+fn hermes_error(stderr: &str, stdout: &str) -> String {
+    if let Some(detail) = stderr
         .lines()
         .find_map(|line| line.trim().strip_prefix("Error:"))
-        .map(|detail| {
-            let detail: String = detail.trim().chars().take(400).collect();
-            format!("Hermes reported an error: {detail}")
-        })
-        .unwrap_or_else(|| "Hermes did not return a reply.".into())
+    {
+        let detail: String = detail.trim().chars().take(400).collect();
+        return format!("Hermes reported an error: {detail}");
+    }
+    // On a failed turn Hermes prints its own user-facing explanation on stdout,
+    // the same channel replies use. Show it, whitespace-collapsed and bounded.
+    let notice: String = stdout
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(400)
+        .collect();
+    if notice.is_empty() {
+        "Hermes did not return a reply.".into()
+    } else {
+        format!("Hermes reported: {notice}")
+    }
 }
 
 /// Applies the cleared environment to a command.
@@ -322,7 +332,6 @@ fn chat_args(profile: &str, message: &str, session_id: Option<&str>) -> Vec<Stri
         profile.to_owned(),
         "chat".to_owned(),
         "-Q".to_owned(),
-        format!("--source={SESSION_SOURCE}"),
         format!("--query={message}"),
     ];
     if let Some(id) = session_id {
@@ -709,7 +718,7 @@ async fn chat_with(
     let session_id = parse_session_id(&stderr);
     let reply = sanitize_text(&output.stdout, REPLY_LIMIT).trim().to_owned();
     if !output.status.success() || reply.is_empty() {
-        return Err(hermes_error(&stderr));
+        return Err(hermes_error(&stderr, &reply));
     }
     Ok(HermesReply { reply, session_id })
 }
@@ -911,11 +920,23 @@ mod tests {
             "  ⚠ some log line with /home/path\nError: Error code: 401 {}\n\nsession_id: x\n",
             "z".repeat(1000)
         );
-        let message = hermes_error(&stderr);
+        let message = hermes_error(&stderr, "ignored when stderr has an error");
         assert!(message.starts_with("Hermes reported an error: Error code: 401"));
         assert!(!message.contains("/home/path"));
         assert!(message.len() < 500);
-        assert_eq!(hermes_error("log only\n"), "Hermes did not return a reply.");
+        assert_eq!(
+            hermes_error("log only\n", ""),
+            "Hermes did not return a reply."
+        );
+        let notice = hermes_error(
+            "",
+            "Hermes couldn't start the model connection: invalid_params. Your message\nwas not sent.",
+        );
+        assert_eq!(
+            notice,
+            "Hermes reported: Hermes couldn't start the model connection: invalid_params. Your message was not sent."
+        );
+        assert!(hermes_error("", &"y".repeat(5000)).len() < 450);
     }
 
     #[test]
@@ -928,13 +949,12 @@ mod tests {
                 "guanyu",
                 "chat",
                 "-Q",
-                "--source=shellguardian",
                 "--query=--yolo -h",
                 "--resume=20261118_060100_7999ca",
             ]
         );
         assert!(!args.iter().any(|a| a == "--yolo"));
-        assert_eq!(chat_args("p", "hi", None).len(), 6);
+        assert_eq!(chat_args("p", "hi", None).len(), 5);
     }
 
     #[test]
@@ -1136,10 +1156,7 @@ mod tests {
             );
         }
         let args = fs::read_to_string(format!("{}.args", record.display())).unwrap();
-        assert_eq!(
-            args,
-            "-p\nguanyu\nchat\n-Q\n--source=shellguardian\n--query=status?\n"
-        );
+        assert_eq!(args, "-p\nguanyu\nchat\n-Q\n--query=status?\n");
     }
 
     #[cfg(unix)]
