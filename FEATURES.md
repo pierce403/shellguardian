@@ -316,9 +316,13 @@ Test Criteria:
     running strip shows its progress note, the timeline, worker log, and worker
     transcript render, a chat request links to its task, and supervisor preparation
     reports its result (2026-11-18).
-  - [ ] `scripts/supervisor-acceptance.mjs` against the live supervisor: single task,
-    dependency ordering, no-task question, blocked impossible task, live tracking.
-    Written and syntax-checked; not run because no gateway was running.
+  - [x] `scripts/supervisor-acceptance.mjs` against the live supervisor (guanyu, Codex,
+    Hermes 0.16.0, board `sg-acceptance`): 4/4 passed in about four minutes. Single task
+    created, tracked, and completed with a result; dependent task started after its
+    parent finished; a plain question created no task; an impossible task ended blocked.
+    The owner started the gateway and ran "Prepare as supervisor" in the app first, so
+    live attach, `profiles.describe`, and `profiles.configure` worked (2026-11-18).
+    The five supervisor chat turns used about 446,000 input tokens.
   - [ ] Live gateway: attach, `model.options`, `profiles.configure`, `session.list`,
     `session.transcript`, `cron.manage` against a running Hermes 0.16 gateway. The
     protocol was taken from the installed source; no live gateway was running and the

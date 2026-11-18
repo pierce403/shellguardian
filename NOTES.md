@@ -675,3 +675,12 @@ bring-your-own-keys) in the in-app terminal for an isolated profile.
 - The agent environment's permission classifier refused `attach --start` as an
   unrequested background service, so the gateway client was verified only against a
   fake loopback gateway. Live RPC verification is an open gate.
+
+## Supervisor acceptance, first live run (2026-11-18)
+
+- 4/4 scenarios passed with guanyu as both supervisor and worker. Tasks dispatched and
+  finished within one to two minutes each.
+- Cost finding: five supervisor chat turns consumed about 446,000 input tokens (797
+  output), roughly 90,000 per turn. The profile carries 61 skills and a 20 KB memory,
+  and each tool call resends the context. Trimming the supervisor's skills and toolsets
+  is the obvious lever before running this routinely. Worker runs were not measured.
