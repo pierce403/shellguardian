@@ -236,3 +236,19 @@ Test Criteria:
 - **Dependencies**: Verified upstream interfaces and dedicated acceptance work.
 - **Test Criteria**:
   - [ ] Each extension has a verified upstream contract and native acceptance test.
+
+## Hermes profile discovery and GuanYu onboarding
+
+- **Stability**: initial implementation, native acceptance pending
+- **Description**: Discover a per-user Hermes installation, reuse existing profiles, and offer opt-in GuanYu creation and Hermes's interactive setup wizard under OpenShell & settings.
+- **Properties**:
+  - Probe the installed CLI and list profiles read-only, without inspecting credentials.
+  - Do not overwrite an existing guanyu profile; explicitly confirm creation.
+  - Launch the installed Hermes CLI in a user terminal for provider onboarding, keeping secrets outside the webview.
+  - Do not automatically download or execute installation scripts, request sudo, or persist credentials.
+  - This first slice is local-only. Remote host detection and SSH-routed onboarding are planned but not implemented.
+- **Test criteria**:
+  - [ ] Native Linux compile, unit tests and UI smoke test.
+  - [ ] Verify profile discovery against an existing Hermes install and a clean install.
+  - [ ] Confirm terminal setup behavior with a disposable profile; verify credentials never enter the webview.
+  - [ ] SSH-only remote discovery/onboarding using strict host-key verification.
