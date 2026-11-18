@@ -168,12 +168,16 @@ test('sample supervisor chats, creates agents, and stays simulated', async ({ pa
   await box.press('Shift+Enter');
   await expect(box).toHaveValue('line one\n');
 
+  const tab = (name: string) => page.getByRole('tab', { name, exact: true }).click();
   const agents = page.getByRole('region', { name: 'Hermes agents' });
+  await tab('Agents');
   await agents.getByLabel('New agent').fill('Bad Name');
   await agents.getByRole('button', { name: 'Create agent' }).click();
   await expect(agents.getByRole('alert')).toContainText('lowercase letters');
   await agents.getByLabel('New agent').fill('scout');
   await agents.getByRole('button', { name: 'Create agent' }).click();
+  await expect(agents).toContainText('scout');
+  await tab('Chat');
   await expect(chat.getByRole('heading', { name: 'Talk to scout' })).toBeVisible();
   await expect(chat.getByText('scout has no model provider yet.', { exact: false })).toBeVisible();
   await expect(chat.getByLabel('Message scout')).toBeDisabled();
@@ -183,21 +187,68 @@ test('sample supervisor chats, creates agents, and stays simulated', async ({ pa
   await setup.getByRole('button', { name: 'Close terminal' }).click();
   await expect(setup).toHaveCount(0);
 
+  await tab('Agents');
+  await expect(agents.getByText('No provider chosen')).toBeVisible();
   await agents.getByRole('button', { name: 'Chat with default' }).click();
   await expect(chat.getByRole('heading', { name: 'Talk to default' })).toBeVisible();
   await expect(chat.getByLabel('Message default')).toBeFocused();
   await expect(chat.getByText('default has no provider chosen', { exact: false })).toBeVisible();
-  await expect(agents.getByText('No provider chosen')).toBeVisible();
-  await chat.getByRole('button', { name: 'Choose provider for default' }).click();
-  const picker = page.getByRole('dialog', { name: 'Choose provider for default' });
-  await expect(picker).toBeVisible();
-  await picker.getByRole('button', { name: 'Close terminal' }).click();
-  await expect(picker).toHaveCount(0);
 
-  await chat.getByLabel('Supervisor agent').selectOption('guanyu');
+  // Provider setup over the gateway: start it, save a key, pick a model.
+  await chat.getByRole('button', { name: 'Choose provider for default' }).click();
+  const provider = page.getByRole('region', { name: 'Provider for default' });
+  await expect(provider).toContainText("default's Hermes gateway, which is not running");
+  await provider.getByRole('button', { name: 'Start gateway' }).click();
+  await expect(provider).toContainText('Currently sample/model via sample-provider');
+  await provider.getByLabel('Provider', { exact: true }).selectOption('sample-keys');
+  const key = provider.getByLabel('API key for Sample API-key provider');
+  await key.fill('sample-not-a-real-key');
+  await provider.getByRole('button', { name: 'Save key' }).click();
+  await expect(provider).toContainText('Hermes saved the key for Sample API-key provider.');
+  await expect(key).toHaveValue('');
+  await provider.getByLabel('Provider', { exact: true }).selectOption('sample-provider');
+  await provider.getByLabel('Model').fill('sample/model-mini');
+  await provider.getByRole('button', { name: 'Use this model' }).click();
+  await expect(provider).toContainText('default now uses sample/model-mini via sample-provider.');
+
+  await tab('Sessions');
+  const sessions = page.getByRole('region', { name: 'Hermes sessions' });
+  await sessions.getByRole('button', { name: /Sample conversation/ }).click();
+  await expect(sessions.getByLabel('Session transcript')).toContainText(
+    'Sample answer. No Hermes agent was contacted.',
+  );
+  await tab('Schedules');
+  await expect(page.getByRole('region', { name: 'Hermes schedules' })).toContainText(
+    'Morning check',
+  );
+
+  await tab('Chat');
+  await page.getByLabel('Supervisor agent').selectOption('guanyu');
   await expect(chat.getByText('How are my agents?')).toBeVisible();
   await chat.getByRole('button', { name: 'New conversation' }).click();
   await expect(chat.getByText('How are my agents?')).toHaveCount(0);
+});
+
+test('sample kanban lists, creates, and comments on tasks', async ({ page }) => {
+  await page.goto('/?preview=1');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  await page.getByRole('tab', { name: 'Kanban', exact: true }).click();
+  const board = page.getByRole('region', { name: 'Kanban board' });
+  await expect(board.getByLabel('ready tasks')).toContainText(
+    'Summarize overnight sandbox activity',
+  );
+  await expect(board.getByLabel('done tasks')).toContainText('Review provider access for scout');
+  const form = page.getByRole('region', { name: 'New kanban task' });
+  await form.getByLabel('Title').fill('Check sandbox policies');
+  await form.getByLabel('Assign to').selectOption('guanyu');
+  await expect(form).toContainText('guanyu will start this task');
+  await form.getByRole('button', { name: 'Create task' }).click();
+  await board.getByRole('button', { name: /Check sandbox policies/ }).click();
+  const task = page.getByRole('region', { name: 'Kanban task', exact: true });
+  await expect(task.getByRole('heading', { name: 'Check sandbox policies' })).toBeVisible();
+  await task.getByLabel('Comment').fill('Looks good');
+  await task.getByRole('button', { name: 'Comment' }).click();
+  await expect(task).toContainText('Looks good');
 });
 
 test('sidebar shows the Hermes gateway beside OpenShell', async ({ page }) => {
@@ -357,6 +408,7 @@ test('desktop install runs only the reviewed installer hash in an in-app termina
   await expect(
     page.getByRole('button', { name: 'Hermes supervisor: Gateway stopped' }),
   ).toBeVisible();
+  await page.getByRole('tab', { name: 'Agents', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Hermes agents' })).toContainText('default');
   const opens = await page.evaluate(() =>
     (window as unknown as { __calls: string[] }).__calls.filter((c) =>

@@ -20,6 +20,15 @@ import type {
   HermesReply,
   HermesTerminalTarget,
   InstallerPreview,
+  HermesGatewayStatus,
+  HermesModelOptions,
+  HermesModelChange,
+  HermesSession,
+  HermesTranscriptRow,
+  HermesSchedule,
+  KanbanBoard,
+  KanbanTask,
+  KanbanTaskDetail,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
@@ -284,6 +293,204 @@ export async function hermesChat(
 export async function openHermesInstallGuide(): Promise<void> {
   if (desktopMode && !previewMode) return invoke('open_hermes_install_guide');
   window.open(hermesInstallGuide, '_blank', 'noopener,noreferrer');
+}
+
+// Hermes gateway (JSON-RPC through native code) and kanban (Hermes CLI).
+// Sample preview data below is illustrative; nothing is contacted.
+let previewGatewayUp = false;
+let previewKanban: KanbanTaskDetail[] = [
+  {
+    id: 't_sample1',
+    title: 'Summarize overnight sandbox activity',
+    assignee: 'guanyu',
+    status: 'ready',
+    body: 'Sample preview task.',
+    comments: [],
+  },
+  {
+    id: 't_sample2',
+    title: 'Review provider access for scout',
+    assignee: 'guanyu',
+    status: 'done',
+    result: 'Sample preview result.',
+    comments: [{ author: 'guanyu', body: 'Sample comment.' }],
+  },
+];
+function previewOnly<T>(value: T): Promise<T> {
+  return Promise.resolve(structuredClone(value));
+}
+function requireDesktop() {
+  if (!desktopMode) throw new Error('This needs the ShellGuardian desktop app.');
+}
+export async function hermesGatewayStatus(profile: string): Promise<HermesGatewayStatus> {
+  if (previewMode) return { state: previewGatewayUp ? 'ready' : 'absent', message: null };
+  requireDesktop();
+  return invoke('hermes_gateway_status', { profile });
+}
+export async function startHermesGateway(profile: string): Promise<HermesGatewayStatus> {
+  if (previewMode) {
+    previewGatewayUp = true;
+    return { state: 'ready', message: null };
+  }
+  requireDesktop();
+  return invoke('start_hermes_gateway', { profile });
+}
+function previewGateway() {
+  if (!previewGatewayUp)
+    throw new Error('The Hermes gateway for this agent is not running. Start it first.');
+}
+export async function hermesModelOptions(profile: string): Promise<HermesModelOptions> {
+  if (previewMode) {
+    previewGateway();
+    return previewOnly({
+      model: 'sample/model',
+      provider: 'sample-provider',
+      providers: [
+        {
+          slug: 'sample-provider',
+          name: 'Sample provider',
+          authenticated: true,
+          auth_type: 'oauth',
+          is_current: true,
+          models: ['sample/model', 'sample/model-mini'],
+        },
+        {
+          slug: 'sample-keys',
+          name: 'Sample API-key provider',
+          authenticated: false,
+          auth_type: 'api_key',
+          is_current: false,
+          models: ['sample/keyed'],
+        },
+      ],
+    });
+  }
+  requireDesktop();
+  return invoke('hermes_model_options', { profile });
+}
+export async function setHermesModel(
+  profile: string,
+  provider: string,
+  model: string,
+  confirm = false,
+): Promise<HermesModelChange> {
+  if (previewMode) {
+    previewGateway();
+    return { ok: true };
+  }
+  requireDesktop();
+  return invoke('set_hermes_model', { profile, provider, model, confirm });
+}
+export async function saveHermesKey(profile: string, provider: string, key: string): Promise<void> {
+  if (previewMode) {
+    previewGateway();
+    return;
+  }
+  requireDesktop();
+  return invoke('save_hermes_key', { profile, provider, key });
+}
+export async function hermesSessions(profile: string): Promise<HermesSession[]> {
+  if (previewMode) {
+    previewGateway();
+    return previewOnly([
+      {
+        session_id: 'sample_session',
+        title: 'Sample conversation',
+        source: 'cli',
+        message_count: 4,
+        running: false,
+        model: 'sample/model',
+        preview: 'Sample preview only.',
+        last_active_at: Date.now() / 1000,
+      },
+    ]);
+  }
+  requireDesktop();
+  return invoke('hermes_sessions', { profile });
+}
+export async function hermesTranscript(
+  profile: string,
+  sessionId: string,
+): Promise<HermesTranscriptRow[]> {
+  if (previewMode)
+    return previewOnly([
+      { role: 'user', text: 'Sample question.' },
+      { role: 'assistant', text: 'Sample answer. No Hermes agent was contacted.' },
+    ]);
+  requireDesktop();
+  return invoke('hermes_transcript', { profile, sessionId });
+}
+export async function hermesSchedules(profile: string): Promise<HermesSchedule[]> {
+  if (previewMode) {
+    previewGateway();
+    return previewOnly([
+      {
+        job_id: 'sample_job',
+        name: 'Morning check',
+        schedule: '0 9 * * *',
+        enabled: true,
+        last_status: 'ok',
+      },
+    ]);
+  }
+  requireDesktop();
+  return invoke('hermes_schedules', { profile });
+}
+export async function kanbanBoards(): Promise<KanbanBoard[]> {
+  if (previewMode)
+    return previewOnly([
+      { slug: 'default', name: 'Default', is_current: true, total: previewKanban.length },
+    ]);
+  requireDesktop();
+  return invoke('hermes_kanban_boards');
+}
+export async function kanbanTasks(board: string): Promise<KanbanTask[]> {
+  if (previewMode)
+    return previewOnly(
+      previewKanban.map(({ body: _b, result: _r, comments: _c, ...task }) => task),
+    );
+  requireDesktop();
+  return invoke('hermes_kanban_tasks', { board });
+}
+export async function kanbanTask(board: string, id: string): Promise<KanbanTaskDetail> {
+  if (previewMode) {
+    const task = previewKanban.find((t) => String(t.id) === id);
+    if (!task) throw new Error('That task no longer exists.');
+    return previewOnly(task);
+  }
+  requireDesktop();
+  return invoke('hermes_kanban_task', { board, id });
+}
+export async function createKanbanTask(
+  board: string,
+  title: string,
+  body: string,
+  assignee: string | null,
+): Promise<KanbanTask> {
+  if (previewMode) {
+    const task: KanbanTaskDetail = {
+      id: `t_sample${previewKanban.length + 1}`,
+      title,
+      body,
+      assignee: assignee ?? undefined,
+      status: assignee ? 'ready' : 'todo',
+      comments: [],
+    };
+    previewKanban = [...previewKanban, task];
+    return previewOnly(task);
+  }
+  requireDesktop();
+  return invoke('create_hermes_kanban_task', { board, title, body, assignee });
+}
+export async function commentKanbanTask(board: string, id: string, text: string): Promise<void> {
+  if (previewMode) {
+    previewKanban = previewKanban.map((t) =>
+      String(t.id) === id ? { ...t, comments: [...t.comments, { author: 'you', body: text }] } : t,
+    );
+    return;
+  }
+  requireDesktop();
+  return invoke('comment_hermes_kanban_task', { board, id, text });
 }
 
 export async function getSshConnections(): Promise<SshConnection[]> {

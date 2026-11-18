@@ -243,8 +243,9 @@ Test Criteria:
 - **Description**: A Supervisor page, below Overview, that installs Hermes with its
   official installer after the user reviews it, talks to a local Hermes agent,
   creates new Hermes agents (profiles), and runs Hermes's own provider setup in an
-  in-app terminal. The sidebar shows the
-  supervisor profile's Hermes gateway state beside OpenShell's.
+  in-app terminal. Tabs cover Chat, Agents (with provider and model setup), Sessions,
+  Kanban, and Schedules. The sidebar shows the supervisor profile's Hermes gateway
+  state beside OpenShell's.
 - **Properties**:
   - Discover profiles read-only from `hermes profile list`, every 60 seconds and on demand.
   - Create only new, empty profiles with `--no-alias`; never clone or overwrite.
@@ -259,6 +260,23 @@ Test Criteria:
     only `hermes -p <profile> setup model`. Discovery reads each profile's provider from
     `hermes profile show`; `auto` is flagged as Hermes's placeholder OpenRouter default.
   - Each agent row has Chat, which selects it in the chat panel and focuses the composer.
+  - Gateway features use Hermes's local JSON-RPC WebSocket. Native code mints a
+    single-use, profile-scoped ticket with `hermes -p <profile> gateway attach --json`,
+    sends it only as the `hermes-gateway-ticket.<T>` subprotocol to a validated loopback
+    `ws://…/api/ws`, waits for `gateway.ready`, makes one fixed call, declines any
+    server request, and closes. The webview gets whitelisted scalar fields only.
+  - Start gateway (`attach --start`) runs only on an explicit click, with the cleared
+    environment. Status checks never start a gateway.
+  - Provider and model: `model.options` lists providers, models, and sign-in state;
+    `profiles.configure` applies Hermes's own validated model assignment (with its
+    expensive-model confirmation); `model.save_key` hands an API key to Hermes. OAuth
+    providers (Codex, Nous, xAI) still sign in through `setup model` in the terminal.
+  - Sessions: `session.list` (stored scope) and read-only `session.transcript`.
+    Schedules: `cron.manage` with `action: list`.
+  - Kanban uses the Hermes CLI (no RPC read API exists): `boards list`, `list`, `show`
+    with `--json`, plus `create` and `comment`. Free text is passed as `--opt=value` or
+    after `--`; IDs must start alphanumeric. Assigned tasks run when that agent's
+    gateway runs.
   - Remote host support is not implemented.
 - **Test criteria**:
   - [x] Rust tests: name/session validation, profile-table parsing, error and
@@ -275,6 +293,17 @@ Test Criteria:
   - [x] Chromium: install review, hash-bound run, terminal exit, and refresh (2026-11-18).
   - [x] Native WebKit: Hermes's real setup wizard renders in the in-app terminal for an
     isolated profile and closes cleanly (2026-11-18).
+  - [x] Rust tests: loopback URL and ticket validation, attach parsing that never
+    serializes the ticket, frame classification, result projections, flag-safe kanban
+    arguments, and a fake loopback gateway checking the subprotocol, `gateway.ready`
+    ordering, interleaved events, declined server requests, and key redaction that
+    happens before truncation (2026-11-18).
+  - [x] Chromium preview: tabs, Start gateway, key save clears the field, model change,
+    sessions and transcript, schedules, kanban columns, create, and comment (2026-11-18).
+  - [ ] Live gateway: attach, `model.options`, `profiles.configure`, `session.list`,
+    `session.transcript`, `cron.manage` against a running Hermes 0.16 gateway. The
+    protocol was taken from the installed source; no live gateway was running and the
+    agent environment may not start one.
   - [ ] Run the official installer end to end on a clean account.
   - [ ] Live chat with a configured disposable profile and known test credentials.
   - [ ] Confirm a dangerous command is denied in a live chat turn.

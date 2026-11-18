@@ -40,6 +40,16 @@ focused milestones. Do not disturb existing agents to test the application.
   only for that confirmed hash, re-hashed immediately before running. Provider
   setup runs `hermes -p <profile> setup` in the same in-app PTY. Like sandbox
   terminals, that output may contain secrets: show it, never log or persist it.
+- Hermes gateway RPC: native code alone mints `gateway attach --json` tickets, keeps
+  them out of IPC results, errors, logs, and `Debug`, and sends them only as a
+  WebSocket subprotocol to a validated loopback `ws://…/api/ws`. Expose fixed
+  methods only, never a webview-chosen method or raw payload; project results to
+  whitelisted fields. Decline server-to-client requests. Start a gateway only on an
+  explicit user click. By the owner's request (2026-11-18), an API key typed into the
+  provider form may pass webview → native → `model.save_key`; never log, store, echo,
+  or return it, clear the field after sending, and redact it from errors before
+  truncating. Kanban uses fixed `hermes kanban` arguments with text after `--` or in
+  `--opt=value` form; creating an assigned task schedules real agent work.
 - Reuse OpenShell's registered gateways and authentication. Scope each request
   explicitly to its gateway and workspace. Changing the UI selection must not
   change OpenShell's active gateway.

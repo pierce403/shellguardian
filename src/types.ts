@@ -149,3 +149,91 @@ export interface AgentTerminalRead {
   exitCode: number | null;
   error: string | null;
 }
+
+export interface HermesGatewayStatus {
+  state: string;
+  message: string | null;
+}
+export interface HermesProviderOption {
+  slug: string;
+  name?: string;
+  authenticated?: boolean;
+  auth_type?: string;
+  is_current?: boolean;
+  total_models?: number;
+  warning?: string;
+  models: string[];
+}
+export interface HermesModelOptions {
+  model?: string;
+  provider?: string;
+  providers: HermesProviderOption[];
+}
+export interface HermesModelChange {
+  ok?: boolean;
+  confirm_required?: boolean;
+  confirm_message?: string;
+}
+export type Stamp = string | number | undefined;
+export interface HermesSession {
+  session_id?: string;
+  title?: string;
+  source?: string;
+  started_at?: Stamp;
+  last_active_at?: Stamp;
+  message_count?: number;
+  running?: boolean;
+  model?: string;
+  preview?: string;
+}
+export interface HermesTranscriptRow {
+  role?: string;
+  text?: string;
+  timestamp?: Stamp;
+  row_kind?: string;
+  name?: string;
+}
+export interface HermesSchedule {
+  job_id?: string;
+  name?: string;
+  schedule?: string;
+  enabled?: boolean;
+  paused?: boolean;
+  next_run_at?: Stamp;
+  last_run_at?: Stamp;
+  last_status?: string;
+  last_error?: string;
+  model?: string;
+  provider?: string;
+}
+export interface KanbanBoard {
+  slug?: string;
+  name?: string;
+  description?: string;
+  is_current?: boolean;
+  archived?: boolean;
+  counts?: Record<string, number>;
+  total?: number;
+}
+export interface KanbanTask {
+  id?: string | number;
+  title?: string;
+  assignee?: string;
+  status?: string;
+  priority?: number | string;
+  tenant?: string;
+  created_at?: Stamp;
+  started_at?: Stamp;
+  completed_at?: Stamp;
+}
+export interface KanbanComment {
+  author?: string;
+  body?: string;
+  created_at?: Stamp;
+}
+export interface KanbanTaskDetail extends KanbanTask {
+  body?: string;
+  result?: string;
+  latest_summary?: string;
+  comments: KanbanComment[];
+}

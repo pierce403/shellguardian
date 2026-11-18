@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import * as api from './api';
 import AgentTerminal from './AgentTerminal';
+import { KanbanPanel, ProviderPanel, SchedulesPanel, SessionsPanel } from './SupervisorPanels';
 import type {
   HermesDiscovery,
   HermesProfile,
@@ -31,6 +32,16 @@ const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const DEFAULT_SUPERVISOR = 'guanyu';
 const REFRESH_INTERVAL_MS = 60_000;
 const MESSAGE_LIMIT = 16 * 1024;
+
+const TABS = ['chat', 'agents', 'sessions', 'kanban', 'schedules'] as const;
+type Tab = (typeof TABS)[number];
+const TAB_LABELS: Record<Tab, string> = {
+  chat: 'Chat',
+  agents: 'Agents',
+  sessions: 'Sessions',
+  kanban: 'Kanban',
+  schedules: 'Schedules',
+};
 
 type Message = { id: number; role: 'user' | 'supervisor' | 'error'; text: string };
 type Conversation = { sessionId: string | null; messages: Message[] };
@@ -184,6 +195,7 @@ export default function Supervisor({
   hermes: HermesController;
   onToast: (message: string) => void;
 }) {
+  const [tab, setTab] = useState<Tab>('chat');
   const [draft, setDraft] = useState('');
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -208,13 +220,33 @@ export default function Supervisor({
   }
 
   function chooseProvider(profile: string) {
+    hermes.choose(profile);
+    setTab('agents');
+    window.setTimeout(
+      () =>
+        document
+          .querySelector('[data-provider-panel]')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      50,
+    );
+  }
+
+  function signIn(profile: string) {
     setTerminal({ hermes: 'model', profile });
   }
 
   function chatWith(profile: string) {
     hermes.choose(profile);
-    composer.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    window.setTimeout(() => composer.current?.focus(), 0);
+    setTab('chat');
+    window.setTimeout(() => {
+      composer.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      composer.current?.focus();
+    }, 50);
+  }
+
+  function switchTab(next: Tab) {
+    setTab(next);
+    document.getElementById(`supervisor-tab-${next}`)?.focus();
   }
 
   async function downloadInstaller() {
@@ -404,7 +436,50 @@ export default function Supervisor({
         </section>
       )}
 
-      {discovery?.installed && (
+      {discovery?.installed && profiles.length > 0 && (
+        <div className="supervisor-tabbar">
+          <div className="detail-tabs supervisor-tabs" role="tablist" aria-label="Supervisor views">
+            {TABS.map((name) => (
+              <button
+                id={`supervisor-tab-${name}`}
+                key={name}
+                role="tab"
+                aria-selected={tab === name}
+                tabIndex={tab === name ? 0 : -1}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+                  event.preventDefault();
+                  const step = event.key === 'ArrowRight' ? 1 : TABS.length - 1;
+                  switchTab(TABS[(TABS.indexOf(name) + step) % TABS.length]);
+                }}
+                onClick={() => setTab(name)}
+              >
+                {TAB_LABELS[name]}
+              </button>
+            ))}
+          </div>
+          {profiles.length > 1 && tab !== 'kanban' && (
+            <label className="supervisor-select-label">
+              Agent
+              <select
+                className="supervisor-select"
+                aria-label="Supervisor agent"
+                value={supervisor?.name ?? ''}
+                disabled={hermes.sending}
+                onChange={(e) => hermes.choose(e.target.value)}
+              >
+                {profiles.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
+
+      {discovery?.installed && profiles.length > 0 && tab === 'chat' && (
         <section className="settings-card supervisor-chat" aria-label="Supervisor chat">
           <div className="settings-heading">
             <div className="provider-icon">
@@ -418,24 +493,6 @@ export default function Supervisor({
                   : 'Create a supervisor agent below.'}
               </p>
             </div>
-            {profiles.length > 1 && (
-              <label className="supervisor-select-label">
-                Agent
-                <select
-                  className="supervisor-select"
-                  aria-label="Supervisor agent"
-                  value={supervisor?.name ?? ''}
-                  disabled={hermes.sending}
-                  onChange={(e) => hermes.choose(e.target.value)}
-                >
-                  {profiles.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
           </div>
 
           {unconfigured && (
@@ -533,7 +590,7 @@ export default function Supervisor({
         </section>
       )}
 
-      {discovery?.installed && (
+      {discovery?.installed && (tab === 'agents' || profiles.length === 0) && (
         <section className="settings-card" aria-label="Hermes agents">
           <div className="section-label">
             <UserPlus size={20} />
@@ -547,7 +604,7 @@ export default function Supervisor({
               <span>
                 {p.name}
                 {p.active ? ' (active)' : ''}
-                {p.name === supervisor?.name ? ' · chatting' : ''}
+                {p.name === supervisor?.name ? ' · selected' : ''}
               </span>
               <span className="supervisor-row-actions">
                 <strong>
@@ -632,6 +689,34 @@ export default function Supervisor({
             </button>
           </div>
         </section>
+      )}
+
+      {discovery?.installed && supervisor && tab === 'agents' && (
+        <div data-provider-panel>
+          <ProviderPanel
+            key={supervisor.name}
+            profile={supervisor.name}
+            onChanged={() => void hermes.refresh()}
+            onSignIn={signIn}
+          />
+        </div>
+      )}
+      {discovery?.installed && supervisor && tab === 'sessions' && (
+        <SessionsPanel
+          key={supervisor.name}
+          profile={supervisor.name}
+          onStarted={() => void hermes.refresh()}
+        />
+      )}
+      {discovery?.installed && profiles.length > 0 && tab === 'kanban' && (
+        <KanbanPanel profiles={profiles.map((p) => p.name)} />
+      )}
+      {discovery?.installed && supervisor && tab === 'schedules' && (
+        <SchedulesPanel
+          key={supervisor.name}
+          profile={supervisor.name}
+          onStarted={() => void hermes.refresh()}
+        />
       )}
 
       {!discovery && !hermes.error && (

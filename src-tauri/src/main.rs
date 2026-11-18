@@ -8,6 +8,7 @@ mod app_updates;
 #[cfg(target_os = "linux")]
 mod desktop_integration;
 mod hermes;
+mod hermes_gateway;
 mod preferences;
 mod ssh_connections;
 mod terminal_sessions;
@@ -144,6 +145,19 @@ fn main() {
             hermes::open_hermes_terminal,
             hermes::hermes_chat,
             hermes::open_hermes_install_guide,
+            hermes_gateway::hermes_gateway_status,
+            hermes_gateway::start_hermes_gateway,
+            hermes_gateway::hermes_model_options,
+            hermes_gateway::set_hermes_model,
+            hermes_gateway::save_hermes_key,
+            hermes_gateway::hermes_sessions,
+            hermes_gateway::hermes_transcript,
+            hermes_gateway::hermes_schedules,
+            hermes_gateway::hermes_kanban_boards,
+            hermes_gateway::hermes_kanban_tasks,
+            hermes_gateway::hermes_kanban_task,
+            hermes_gateway::create_hermes_kanban_task,
+            hermes_gateway::comment_hermes_kanban_task,
             get_agent_detail,
             get_agent_logs,
             change_agent_state,

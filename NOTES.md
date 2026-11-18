@@ -654,3 +654,24 @@ bring-your-own-keys) in the in-app terminal for an isolated profile.
 - `hermes setup` "Quick" is Nous Portal OAuth. A provider chosen in a tool's
   setup step (e.g. `image_gen: openai-codex`) does not set `model.provider`;
   `profile show` then reports `(auto)` with the placeholder OpenRouter model.
+
+## Hermes gateway RPC (2026-11-18)
+
+- `hermes -p P gateway attach --json` prints one JSON line: `state`, `url`
+  (`ws://127.0.0.1:PORT/api/ws`), `ticket` (single use, 30 s, profile-scoped), and
+  `protocols` (which also contains the ticket). Exit 5 with `state: absent` means no
+  gateway. Gateways start on demand and exit when idle; one host gateway can serve
+  several profiles.
+- Dial with `Sec-WebSocket-Protocol: hermes-gateway-v1, hermes-gateway-ticket.<T>`,
+  no `Origin` header, loopback only. The server speaks first with an `event` of type
+  `gateway.ready`. Server-originated request ids start with `srq-`.
+- `config.set key=model` is refused on the gateway (`use_session_mutation_model`);
+  `profiles.configure {name, provider, model}` applies the persistent assignment the
+  dashboard uses. `hermes config set model.*` does not resync `base_url`/`api_mode`.
+- `model.save_key` refuses OAuth providers; Codex/Nous/xAI sign-in stays in
+  `hermes setup model`.
+- Kanban has no RPC read API; `hermes kanban … --json` works without a gateway. The
+  board is shared across profiles at `~/.hermes/kanban.db`.
+- The agent environment's permission classifier refused `attach --start` as an
+  unrequested background service, so the gateway client was verified only against a
+  fake loopback gateway. Live RPC verification is an open gate.

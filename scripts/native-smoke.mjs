@@ -93,6 +93,14 @@ try {
     await execute(
       `Array.from(document.querySelectorAll('nav button')).find(button => button.textContent.trim() === 'Supervisor').click(); return true;`,
     );
+    if (expectHermes === 'detected') {
+      await until(
+        `return Boolean(document.querySelector('#supervisor-tab-agents'))`,
+        Boolean,
+        'Supervisor tabs render',
+      );
+      await execute(`document.querySelector('#supervisor-tab-agents').click(); return true;`);
+    }
     const region = expectHermes === 'detected' ? 'Hermes agents' : 'Install Hermes';
     hermes = await until(
       `return document.querySelector('[aria-label="${region}"]')?.innerText ?? ''`,

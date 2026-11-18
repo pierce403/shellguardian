@@ -127,7 +127,7 @@ fn resolve_hermes(home: Option<&OsStr>, path: Option<&OsStr>) -> Option<PathBuf>
         .find(|candidate| is_executable_file(candidate))
 }
 
-fn hermes_path() -> Option<PathBuf> {
+pub(crate) fn hermes_path() -> Option<PathBuf> {
     resolve_hermes(
         std::env::var_os("HOME").as_deref(),
         std::env::var_os("PATH").as_deref(),
@@ -145,7 +145,7 @@ fn valid_profile_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-'))
 }
 
-fn require_profile_name(name: &str) -> Result<(), String> {
+pub(crate) fn require_profile_name(name: &str) -> Result<(), String> {
     if valid_profile_name(name) {
         Ok(())
     } else {
@@ -154,7 +154,7 @@ fn require_profile_name(name: &str) -> Result<(), String> {
 }
 
 /// Session IDs Hermes prints look like `20261118_060100_7999ca`.
-fn valid_session_id(id: &str) -> bool {
+pub(crate) fn valid_session_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id
@@ -164,7 +164,7 @@ fn valid_session_id(id: &str) -> bool {
 
 /// Removes terminal control characters from CLI text and bounds its length.
 /// Newlines and tabs are preserved for readability.
-fn sanitize_text(raw: &[u8], limit: usize) -> String {
+pub(crate) fn sanitize_text(raw: &[u8], limit: usize) -> String {
     String::from_utf8_lossy(raw)
         .chars()
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
@@ -313,7 +313,7 @@ fn scrub_env(command: &mut Command, allow: &[&[&str]]) {
     }
 }
 
-fn hermes_command(binary: &Path) -> Command {
+pub(crate) fn hermes_command(binary: &Path) -> Command {
     let mut command = Command::new(binary);
     scrub_env(&mut command, &[HERMES_ENV_ALLOWLIST]);
     command
