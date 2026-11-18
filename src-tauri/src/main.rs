@@ -5,6 +5,7 @@ use openshell_bridge::{model::*, process::ProcessRunner, Bridge, Error};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 mod app_updates;
+mod hermes;
 #[cfg(target_os = "linux")]
 mod desktop_integration;
 mod preferences;
@@ -137,6 +138,9 @@ fn main() {
         .on_window_event(app_updates::on_window_event)
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            hermes::discover_hermes,
+            hermes::create_guanyu_profile,
+            hermes::start_guanyu_onboarding,
             get_agent_detail,
             get_agent_logs,
             change_agent_state,
