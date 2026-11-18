@@ -17,6 +17,7 @@ import type {
   AgentTerminalSession,
   AgentTerminalRead,
   HermesDiscovery,
+  HermesReply,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
@@ -202,25 +203,51 @@ const hermesInstallGuide =
   'https://hermes-agent.nousresearch.com/docs/getting-started/installation/';
 let previewHermes: HermesDiscovery = {
   installed: true,
-  profileExists: false,
-  profiles: 'default\n',
   installation: '/home/sample/.local/bin/hermes',
+  profiles: [
+    { name: 'default', model: null, gateway: 'stopped', active: true },
+    { name: 'guanyu', model: 'sample/model', gateway: 'running', active: false },
+  ],
+  profileText: '',
 };
+let previewTurn = 0;
 export async function discoverHermes(): Promise<HermesDiscovery | null> {
-  if (previewMode) return { ...previewHermes };
+  if (previewMode) return structuredClone(previewHermes);
   if (!desktopMode) return null;
   return invoke('discover_hermes');
 }
-export async function createGuanyuProfile(): Promise<void> {
+export async function createHermesProfile(name: string): Promise<void> {
   if (previewMode) {
-    previewHermes = { ...previewHermes, profileExists: true, profiles: 'default\nguanyu\n' };
+    if (previewHermes.profiles.some((profile) => profile.name === name))
+      throw new Error(`A Hermes profile named ${name} already exists. Refresh instead.`);
+    previewHermes = {
+      ...previewHermes,
+      profiles: [
+        ...previewHermes.profiles,
+        { name, model: null, gateway: 'stopped', active: false },
+      ],
+    };
     return;
   }
-  return invoke('create_guanyu_profile');
+  return invoke('create_hermes_profile', { name });
 }
-export async function startGuanyuOnboarding(): Promise<void> {
+export async function startHermesSetup(profile: string): Promise<void> {
   if (previewMode) return;
-  return invoke('start_guanyu_onboarding');
+  return invoke('start_hermes_setup', { profile });
+}
+export async function hermesChat(
+  profile: string,
+  message: string,
+  sessionId: string | null,
+): Promise<HermesReply> {
+  if (previewMode) {
+    previewTurn += 1;
+    return {
+      reply: `Sample preview reply ${previewTurn}. No Hermes agent was contacted.`,
+      sessionId: sessionId ?? 'sample_session',
+    };
+  }
+  return invoke('hermes_chat', { profile, message, sessionId });
 }
 export async function openHermesInstallGuide(): Promise<void> {
   if (desktopMode && !previewMode) return invoke('open_hermes_install_guide');

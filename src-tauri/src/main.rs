@@ -139,8 +139,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             hermes::discover_hermes,
-            hermes::create_guanyu_profile,
-            hermes::start_guanyu_onboarding,
+            hermes::create_hermes_profile,
+            hermes::start_hermes_setup,
+            hermes::hermes_chat,
             hermes::open_hermes_install_guide,
             get_agent_detail,
             get_agent_logs,

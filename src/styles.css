@@ -254,6 +254,23 @@ textarea.policy-editor {
   margin-left: auto;
   color: #91aa9e;
 }
+.hermes-foot {
+  width: 100%;
+  margin-top: 0;
+  padding-top: 13px;
+  border-top: none;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.hermes-foot:hover small {
+  color: #cedad1;
+}
 .main-shell {
   min-width: 0;
   width: calc(100% - 245px);
@@ -2202,4 +2219,136 @@ input::placeholder,
 textarea::placeholder {
   color: var(--muted);
   opacity: 1;
+}
+
+/* Supervisor */
+.supervisor-layout {
+  max-width: 810px;
+  display: flex;
+  flex-direction: column;
+  gap: 19px;
+}
+.supervisor-empty {
+  display: flex;
+  gap: 14px;
+  color: var(--accent);
+}
+.supervisor-empty h3 {
+  font-size: 15px;
+  color: var(--secondary);
+  margin-bottom: 6px;
+}
+.supervisor-select {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+.supervisor-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 12px;
+}
+.supervisor-notice p {
+  flex: 1 1 260px;
+}
+.supervisor-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 160px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 4px 2px 12px;
+}
+.supervisor-message {
+  max-width: 88%;
+  padding: 10px 13px;
+  border-radius: 9px;
+  background: var(--surface-muted);
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.supervisor-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.supervisor-message.user {
+  align-self: flex-end;
+  background: var(--success-bg);
+}
+.supervisor-message.error {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.supervisor-message.pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.supervisor-role {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.supervisor-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.supervisor-compose textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 56px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 10px 12px;
+}
+.supervisor-compose-actions,
+.supervisor-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.button.compact {
+  min-height: 28px;
+  padding: 5px 10px;
+  font-size: 10px;
+}
+.supervisor-create {
+  margin: 4px 0 14px;
+}
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 8px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
 }

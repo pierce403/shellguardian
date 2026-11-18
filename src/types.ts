@@ -79,11 +79,23 @@ export interface UpdateInfo {
 }
 export type LifecycleAction = 'start' | 'stop';
 export type ProviderAction = 'attach' | 'detach';
+export interface HermesProfile {
+  name: string;
+  model: string | null;
+  gateway: string | null;
+  active: boolean;
+}
+
 export interface HermesDiscovery {
   installed: boolean;
-  profileExists: boolean;
-  profiles: string;
   installation: string | null;
+  profiles: HermesProfile[];
+  profileText: string;
+}
+
+export interface HermesReply {
+  reply: string;
+  sessionId: string | null;
 }
 
 export interface AppUpdateStatus {

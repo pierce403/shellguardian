@@ -237,27 +237,33 @@ Test Criteria:
 - **Test Criteria**:
   - [ ] Each extension has a verified upstream contract and native acceptance test.
 
-## Hermes profile discovery and GuanYu onboarding
+## Hermes supervisor
 
-- **Stability**: initial implementation, native acceptance pending
-- **Description**: Discover a per-user Hermes installation, reuse existing profiles, and offer opt-in GuanYu creation and Hermes's interactive setup wizard under OpenShell & settings.
+- **Stability**: initial implementation, native acceptance of chat pending
+- **Description**: A Supervisor page, below Overview, that talks to a local Hermes
+  agent, guides installation when Hermes is absent, creates new Hermes agents
+  (profiles), and opens Hermes's own setup for providers. The sidebar shows the
+  supervisor profile's Hermes gateway state beside OpenShell's.
 - **Properties**:
-  - Probe the installed CLI and list profiles read-only, without inspecting credentials.
-  - Do not overwrite an existing guanyu profile; explicitly confirm creation.
-  - Launch the installed Hermes CLI in a user terminal for provider onboarding, keeping secrets outside the webview.
-  - Do not automatically download or execute installation scripts, request sudo, or persist credentials.
-  - This first slice is local-only. Remote host detection and SSH-routed onboarding are planned but not implemented.
+  - Discover profiles read-only from `hermes profile list`, every 60 seconds and on demand.
+  - Create only new, empty profiles with `--no-alias`; never clone or overwrite.
+  - Chat one turn at a time through `hermes -p <profile> chat -Q --query=... --resume=...`,
+    bounded in size and time. Conversations live in memory only.
+  - Dangerous commands fail closed (`HERMES_INTERACTIVE=1`, no stdin), never auto-approved.
+  - Hermes children never inherit provider keys from the desktop environment.
+  - Provider setup runs in the user's terminal; credentials never enter the webview.
+  - Do not download or run installers. Remote host support is not implemented.
 - **Test criteria**:
-  - [x] Native Linux compile, Clippy, and unit tests for executable resolution,
-    output sanitization, and fixed terminal arguments (2026-11-18).
-  - [x] Chromium preview and browser-mode tests: confirmation gate, simulated
-    setup, and no probing outside the desktop app (2026-11-18).
-  - [x] Native WebKit smoke test, against the live gateway, of both the absent and the
-    detected states (isolated Hermes 0.16.0 wrapper on `PATH`) (2026-11-18).
-  - [x] Live Hermes 0.16.0 in a temporary `HOME`/`HERMES_HOME`: clean discovery,
-    creation without `.env` or alias wrapper, then refusal to recreate (2026-11-18).
-  - [x] `hermes -p guanyu setup` parses for a disposable profile, and the Debian
-    `x-terminal-emulator` (Terminator) passes everything after `-e` to it (2026-11-18).
-  - [ ] Complete the interactive setup wizard by hand in a disposable profile and
-    confirm no credential reaches the webview.
-  - [ ] SSH-only remote discovery/onboarding using strict host-key verification.
+  - [x] Rust tests: name/session validation, profile-table parsing, error and
+    reply bounding, flag-safe arguments, environment allowlist, fail-closed
+    approval variable, and one-turn locking with stub Hermes executables (2026-11-18).
+  - [x] Live Hermes 0.16.0 in a temporary `HOME`/`HERMES_HOME`: discovery, creation
+    without `.env` or alias, refusal to recreate. No inference (2026-11-18).
+  - [x] Chromium: preview chat, Enter/Shift+Enter, agent creation and validation,
+    unconfigured gating, session resume IDs, error display, sidebar status (2026-11-18).
+  - [x] Native WebKit against the live gateway: sidebar status and Supervisor page
+    for absent and detected Hermes (2026-11-18).
+  - [ ] Live chat with a configured disposable profile and known test credentials.
+  - [ ] Confirm a dangerous command is denied in a live chat turn.
+  - [ ] Complete the setup wizard by hand; confirm no credential reaches the webview.
+  - [ ] SSH-only remote discovery and chat using strict host-key verification.

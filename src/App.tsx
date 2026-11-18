@@ -33,12 +33,13 @@ import {
   WifiOff,
   X,
   type LucideIcon,
+  BrainCircuit,
 } from 'lucide-react';
 import * as api from './api';
 import AppUpdates, { useAppUpdates } from './AppUpdates';
 import SshConnections, { useSshConnections } from './SshConnections';
 import AgentTerminal from './AgentTerminal';
-import HermesOnboarding from './HermesOnboarding';
+import Supervisor, { HermesFoot, useHermes } from './Supervisor';
 import type {
   Agent,
   AgentDetail,
@@ -56,7 +57,7 @@ import type {
   TerminalKind,
 } from './types';
 
-type Page = 'overview' | 'agents' | 'credentials' | 'activity' | 'openshell';
+type Page = 'overview' | 'supervisor' | 'agents' | 'credentials' | 'activity' | 'openshell';
 type DetailTab = 'permissions' | 'credentials' | 'activity';
 type Pending = {
   title: string;
@@ -939,7 +940,6 @@ function OpenShellPage({
         onToast={onToast}
       />
       <AppUpdates status={appUpdate} onStatus={onAppUpdate} onToast={onToast} />
-      <HermesOnboarding onToast={onToast} />
       <section className="settings-card">
         <div className="settings-heading">
           <div className="provider-icon">
@@ -1086,6 +1086,7 @@ function OpenShellPage({
 export default function App() {
   const { status: appUpdate, setStatus: setAppUpdate } = useAppUpdates();
   const ssh = useSshConnections();
+  const hermes = useHermes();
   const [page, setPage] = useState<Page>('overview');
   const [selection, setSelection] = useState<Selection>({ gateway: null, workspace: 'default' });
   const { data, gateways, busy, error, refresh } = useSnapshot(selection);
@@ -1160,12 +1161,14 @@ export default function App() {
     data?.notices.some((notice) => notice.area === 'providers') ?? false;
   const nav: { id: Page; title: string; icon: LucideIcon }[] = [
     { id: 'overview', title: 'Overview', icon: LayoutDashboard },
+    { id: 'supervisor', title: 'Supervisor', icon: BrainCircuit },
     { id: 'agents', title: 'Agents', icon: Bot },
     { id: 'credentials', title: 'Credentials', icon: KeyRound },
     { id: 'activity', title: 'Activity', icon: Activity },
   ];
   const titles: Record<Page, string> = {
     overview: 'Overview',
+    supervisor: 'Supervisor',
     agents: 'Your agents',
     credentials: 'Credentials',
     activity: 'Activity',
@@ -1282,6 +1285,7 @@ export default function App() {
             </span>
             <Shield size={15} />
           </div>
+          <HermesFoot hermes={hermes} onOpen={() => setPage('supervisor')} />
         </div>
       </aside>
       <div className="main-shell">
@@ -1387,11 +1391,13 @@ export default function App() {
                   ? 'Keep an eye on their environment. Keep a hand on their access.'
                   : page === 'agents'
                     ? 'One place to see each sandbox and the boundaries around it.'
-                    : page === 'credentials'
-                      ? 'Know which providers are available, and choose who gets access.'
-                      : page === 'activity'
-                        ? 'See what OpenShell observed, directly from your agents’ sandboxes.'
-                        : 'Stay connected to the runtime that keeps your agents in bounds.'}
+                    : page === 'supervisor'
+                      ? 'Talk to your Hermes supervisor, or set up a new agent.'
+                      : page === 'credentials'
+                        ? 'Know which providers are available, and choose who gets access.'
+                        : page === 'activity'
+                          ? 'See what OpenShell observed, directly from your agents’ sandboxes.'
+                          : 'Stay connected to the runtime that keeps your agents in bounds.'}
               </p>
             </div>
             <div className="connection-chip">
@@ -1718,6 +1724,7 @@ export default function App() {
               }}
             />
           )}
+          {page === 'supervisor' && <Supervisor hermes={hermes} onToast={setToast} />}
           {page === 'overview' && <UsageCoverage />}
           <footer className="page-footer">
             <span>

@@ -146,29 +146,124 @@ test('update check is explicit and sample result is not presented as live', asyn
   ).toBeVisible();
 });
 
-test('sample Hermes onboarding requires confirmation and stays simulated', async ({ page }) => {
+test('sample supervisor chats, creates agents, and stays simulated', async ({ page }) => {
   await page.goto('/?preview=1');
-  await page.getByRole('button', { name: 'OpenShell & settings', exact: true }).click();
-  const card = page.getByRole('region', { name: 'Hermes onboarding' });
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Supervisor', level: 1 })).toBeVisible();
   await expect(
-    card.getByText('Sample preview only. This is not a live Hermes installation.'),
+    page.getByText(
+      'Sample preview only. No Hermes agent is contacted and replies are illustrative.',
+    ),
   ).toBeVisible();
-  await expect(card.getByText('Not configured')).toBeVisible();
-  const create = card.getByRole('button', { name: 'Create GuanYu' });
-  await expect(create).toBeDisabled();
-  await card.getByLabel('Create a new GuanYu profile').check();
-  await create.click();
-  await expect(card.getByText('Existing profile found')).toBeVisible();
-  await card.getByRole('button', { name: 'Configure GuanYu' }).click();
+  const chat = page.getByRole('region', { name: 'Supervisor chat' });
+  await expect(chat.getByRole('heading', { name: 'Talk to guanyu' })).toBeVisible();
+  const box = chat.getByLabel('Message guanyu');
+  await box.fill('How are my agents?');
+  await box.press('Enter');
+  await expect(chat.getByText('How are my agents?')).toBeVisible();
+  await expect(
+    chat.getByText('Sample preview reply 1. No Hermes agent was contacted.'),
+  ).toBeVisible();
+  await box.fill('line one');
+  await box.press('Shift+Enter');
+  await expect(box).toHaveValue('line one\n');
+
+  const agents = page.getByRole('region', { name: 'Hermes agents' });
+  await agents.getByLabel('New agent').fill('Bad Name');
+  await agents.getByRole('button', { name: 'Create agent' }).click();
+  await expect(agents.getByRole('alert')).toContainText('lowercase letters');
+  await agents.getByLabel('New agent').fill('scout');
+  await agents.getByRole('button', { name: 'Create agent' }).click();
+  await expect(chat.getByRole('heading', { name: 'Talk to scout' })).toBeVisible();
+  await expect(chat.getByText('scout has no model provider yet.', { exact: false })).toBeVisible();
+  await expect(chat.getByLabel('Message scout')).toBeDisabled();
+  await chat.getByRole('button', { name: 'Configure scout' }).click();
   await expect(page.getByText('Sample preview only. No terminal was opened.')).toBeVisible();
+
+  await chat.getByLabel('Supervisor agent').selectOption('guanyu');
+  await expect(chat.getByText('How are my agents?')).toBeVisible();
+  await chat.getByRole('button', { name: 'New conversation' }).click();
+  await expect(chat.getByText('How are my agents?')).toHaveCount(0);
+});
+
+test('sidebar shows the Hermes gateway beside OpenShell', async ({ page }) => {
+  await page.goto('/?preview=1');
+  const foot = page.getByRole('button', { name: 'Hermes supervisor: Sample preview' });
+  await expect(foot).toContainText('Hermes guanyu');
+  await expect(foot.locator('.status-dot.connected')).toHaveCount(1);
+  await foot.click();
+  await expect(page.getByRole('heading', { name: 'Supervisor', level: 1 })).toBeVisible();
 });
 
 test('browser mode does not probe Hermes', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'OpenShell & settings', exact: true }).click();
-  const card = page.getByRole('region', { name: 'Hermes onboarding' });
-  await expect(card.getByText('Desktop app only')).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Hermes supervisor: Desktop app only' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  await expect(page.getByText('Supervisor needs the desktop app')).toBeVisible();
+});
+
+test('desktop supervisor reports Hermes errors without inventing replies', async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: string[] = [];
+    Object.defineProperty(window, '__calls', { value: calls });
+    Object.defineProperty(window, 'isTauri', { value: true });
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      value: {
+        invoke: async (command: string, args: Record<string, unknown>) => {
+          calls.push(command + ':' + JSON.stringify(args ?? {}));
+          if (command === 'discover_hermes')
+            return {
+              installed: true,
+              installation: '/usr/bin/hermes',
+              profiles: [{ name: 'guanyu', model: 'x/y', gateway: 'stopped', active: true }],
+              profileText: '',
+            };
+          if (command === 'hermes_chat') {
+            if ((args as { message: string }).message === 'fail')
+              throw 'Hermes reported an error: Invalid API key';
+            return { reply: 'All quiet.', sessionId: 's_1' };
+          }
+          if (command === 'get_snapshot') throw 'offline';
+          if (command === 'get_shellguardian_update')
+            return {
+              appVersion: '0',
+              enabled: true,
+              supported: false,
+              phase: 'unsupported',
+              latestVersion: null,
+              error: null,
+            };
+          throw new Error('Unsupported test command');
+        },
+      },
+    });
+  });
+  await page.goto('/');
+  const foot = page.getByRole('button', { name: 'Hermes supervisor: Gateway stopped' });
+  await expect(foot.locator('.status-dot.connected')).toHaveCount(0);
+  await foot.click();
+  const chat = page.getByRole('region', { name: 'Supervisor chat' });
+  const box = chat.getByLabel('Message guanyu');
+  await box.fill('fail');
+  await box.press('Enter');
+  await expect(chat.getByText('Hermes reported an error: Invalid API key')).toBeVisible();
+  await expect(chat.getByText('Not delivered')).toBeVisible();
+  await box.fill('status?');
+  await box.press('Enter');
+  await expect(chat.getByText('All quiet.')).toBeVisible();
+  await box.fill('again');
+  await box.press('Enter');
+  await expect(chat.getByText('All quiet.')).toHaveCount(2);
+  const chats = await page.evaluate(() =>
+    (window as unknown as { __calls: string[] }).__calls.filter((c) => c.startsWith('hermes_chat')),
+  );
+  expect(chats).toEqual([
+    'hermes_chat:{"profile":"guanyu","message":"fail","sessionId":null}',
+    'hermes_chat:{"profile":"guanyu","message":"status?","sessionId":null}',
+    'hermes_chat:{"profile":"guanyu","message":"again","sessionId":"s_1"}',
+  ]);
 });
 
 test('small-screen layout stays within the viewport', async ({ page }) => {

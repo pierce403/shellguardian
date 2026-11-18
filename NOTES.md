@@ -599,3 +599,29 @@ The live release check reported OpenShell 0.1.9 available; nothing was upgraded.
 
 Remaining gate: complete the interactive setup wizard by hand in a disposable profile.
 
+## 2026-11-18: Hermes supervisor and an environment key leak
+
+Incident: while probing `hermes chat -Q -q` with an unconfigured, disposable
+profile, Hermes's default provider (OpenRouter) received the developer shell's
+exported `OPENAI_API_KEY` and rejected it with HTTP 401. Nothing was billed, but a
+credential reached a third party. Hermes reads provider keys from the process
+environment, and ShellGuardian inherits the desktop session's environment, so every
+Hermes child now gets `env_clear()` plus a short allowlist. A stub-executable test
+asserts no other variable reaches it.
+
+hermes-agent 0.16.0 auto-approves dangerous commands in non-interactive runs unless
+`HERMES_INTERACTIVE` or a gateway context is set (`tools/approval.py`). With
+`HERMES_INTERACTIVE=1` and null stdin, its prompt reads end-of-file and denies.
+Quiet single-query mode prints only the reply on stdout and `session_id: <id>` as
+the last stderr line. Messages use `--query=` so text beginning with `-` is never
+parsed as a flag.
+
+Bug found: a second ShellGuardian launch on the same D-Bus session activates the
+running GtkApplication, which reruns Tauri setup and panics with "a webview with
+label `main` already exists". This crashed the dev instance during native smoke.
+Native harnesses must use `dbus-run-session`. A single-instance fix (focus the
+existing window) is not implemented yet.
+
+Native smoke (private D-Bus, Xvfb, live gateway) passed for absent and detected
+Hermes. Evidence: `test-results/native-supervisor-*.png`.
+

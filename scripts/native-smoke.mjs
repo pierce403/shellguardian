@@ -78,28 +78,40 @@ try {
     'official native update check',
   );
   assert.ok(settings.includes(expectedVersion));
+  const screenshot = await request(`/session/${session}/screenshot`);
+  await writeFile('test-results/native-settings.png', Buffer.from(screenshot, 'base64'));
   let hermes = null;
   if (expectHermes) {
-    const card = `return document.querySelector('[aria-label="Hermes onboarding"]')?.innerText ?? ''`;
-    hermes = await until(
-      card,
+    const foot = await until(
+      `return document.querySelector('.hermes-foot')?.getAttribute('aria-label') ?? ''`,
       (value) =>
         expectHermes === 'detected'
-          ? value.includes('Detected') && value.includes('GuanYu profile')
-          : value.includes('Not detected') && value.includes('Installation guide'),
-      `native Hermes card reports ${expectHermes}`,
+          ? /^Hermes supervisor: Gateway (stopped|running)$/.test(value)
+          : value === 'Hermes supervisor: Not detected',
+      `native Hermes sidebar status reports ${expectHermes}`,
+    );
+    await execute(
+      `Array.from(document.querySelectorAll('nav button')).find(button => button.textContent.trim() === 'Supervisor').click(); return true;`,
+    );
+    const region = expectHermes === 'detected' ? 'Hermes agents' : 'Install Hermes';
+    hermes = await until(
+      `return document.querySelector('[aria-label="${region}"]')?.innerText ?? ''`,
+      (value) =>
+        expectHermes === 'detected'
+          ? value.includes('default') && value.includes('Create agent')
+          : value.includes('Installation guide'),
+      `native Supervisor page reports ${expectHermes}`,
     );
     assert.ok(!hermes.includes('Sample preview'));
     assert.ok(!hermes.includes('Unsupported'));
-    await execute(
-      `document.querySelector('[aria-label="Hermes onboarding"]').scrollIntoView({ block: 'start' }); return true;`,
-    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     const shot = await request(`/session/${session}/screenshot`);
-    await writeFile(`test-results/native-hermes-${expectHermes}.png`, Buffer.from(shot, 'base64'));
+    await writeFile(
+      `test-results/native-supervisor-${expectHermes}.png`,
+      Buffer.from(shot, 'base64'),
+    );
+    hermes = foot;
   }
-  const screenshot = await request(`/session/${session}/screenshot`);
-  await writeFile('test-results/native-settings.png', Buffer.from(screenshot, 'base64'));
   console.log(
     JSON.stringify(
       {
