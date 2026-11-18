@@ -50,6 +50,17 @@ focused milestones. Do not disturb existing agents to test the application.
   or return it, clear the field after sending, and redact it from errors before
   truncating. Kanban uses fixed `hermes kanban` arguments with text after `--` or in
   `--opt=value` form; creating an assigned task schedules real agent work.
+- By the owner's decision (2026-11-18), "Prepare as supervisor" may change an
+  existing Hermes profile in exactly two ways, on an explicit click: enable the
+  `kanban` toolset while keeping every toolset already enabled, and install the
+  ShellGuardian-owned `shellguardian-supervisor` skill. Never replace `SOUL.md`, a
+  skill ShellGuardian does not own, or any credential. Worker logs and transcripts
+  are shown like terminal output: never logged or persisted.
+- Planned (owner decisions, 2026-11-18; see `FEATURES.md` roadmap): Hermes agents
+  decide and agent CLIs in OpenShell sandboxes do the work; the supervisor chooses
+  which existing providers a managed sandbox gets, bounded by limits enforced in
+  native code, not prompts. Until that milestone lands, sandbox creation and
+  deletion stay out of scope.
 - Reuse OpenShell's registered gateways and authentication. Scope each request
   explicitly to its gateway and workspace. Changing the UI selection must not
   change OpenShell's active gateway.

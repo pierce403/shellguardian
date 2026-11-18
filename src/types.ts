@@ -225,6 +225,39 @@ export interface KanbanTask {
   created_at?: Stamp;
   started_at?: Stamp;
   completed_at?: Stamp;
+  created_by?: string;
+  session_id?: string;
+  model_override?: string;
+  provider_override?: string;
+}
+export interface KanbanEvent {
+  kind?: string;
+  created_at?: Stamp;
+  run_id?: number | string;
+  detail?: {
+    session_id?: string;
+    note?: string;
+    outcome?: string;
+    reason?: string;
+    summary?: string;
+    status?: string;
+    profile?: string;
+    error?: string;
+  };
+}
+export interface KanbanRun {
+  id?: number | string;
+  profile?: string;
+  status?: string;
+  outcome?: string;
+  summary?: string;
+  error?: string;
+  started_at?: Stamp;
+  ended_at?: Stamp;
+}
+export interface SupervisorPreparation {
+  kanbanEnabled: boolean;
+  skillInstalled: boolean;
 }
 export interface KanbanComment {
   author?: string;
@@ -235,5 +268,8 @@ export interface KanbanTaskDetail extends KanbanTask {
   body?: string;
   result?: string;
   latest_summary?: string;
+  last_failure_error?: string;
   comments: KanbanComment[];
+  events?: KanbanEvent[];
+  runs?: KanbanRun[];
 }

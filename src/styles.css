@@ -2511,3 +2511,37 @@ textarea::placeholder {
   flex-direction: column;
   gap: 12px;
 }
+.supervisor-chat-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kanban-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kanban-timeline li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.kanban-timeline li span {
+  color: var(--muted);
+}
+.kanban-timeline li p {
+  flex-basis: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+[data-provider-panel] {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}

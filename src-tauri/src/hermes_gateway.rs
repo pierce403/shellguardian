@@ -628,6 +628,10 @@ const TASK_KEYS: &[&str] = &[
     "created_at",
     "started_at",
     "completed_at",
+    "created_by",
+    "session_id",
+    "model_override",
+    "provider_override",
 ];
 
 /// Lists kanban boards with task counts.
@@ -669,10 +673,50 @@ pub async fn hermes_kanban_task(board: String, id: String) -> Result<Value, Stri
         return Err("That task ID is not valid.".into());
     }
     let value = parse_json(&kanban(Some(&board), &["show", &id, "--json"]).await?)?;
-    let task = value.get("task").unwrap_or(&value);
+    Ok(project_task_detail(&value))
+}
+
+/// Event payload fields worth showing. Payloads are Hermes-internal JSON; only
+/// these scalars are copied, so paths, PIDs, and anything else stay native.
+const EVENT_PAYLOAD_KEYS: &[&str] = &[
+    "session_id",
+    "note",
+    "outcome",
+    "reason",
+    "summary",
+    "status",
+    "profile",
+    "error",
+    "kind",
+];
+
+fn project_event(event: &Value) -> Value {
+    let mut out = pick(event, &["kind", "created_at", "run_id"], FIELD_LIMIT);
+    // `payload` is a JSON string in `show --json` and an object elsewhere.
+    let parsed = match event.get("payload") {
+        Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok(),
+        Some(object @ Value::Object(_)) => Some(object.clone()),
+        _ => None,
+    };
+    if let Some(payload) = parsed {
+        let detail = pick(&payload, EVENT_PAYLOAD_KEYS, 500);
+        if !detail.is_empty() {
+            out.insert("detail".into(), Value::Object(detail));
+        }
+    }
+    Value::Object(out)
+}
+
+/// Projects `kanban show --json`: the task, comments, event timeline, and runs.
+fn project_task_detail(value: &Value) -> Value {
+    let task = value.get("task").unwrap_or(value);
     let mut out = pick(task, TASK_KEYS, FIELD_LIMIT);
-    out.extend(pick(task, &["body", "result"], BODY_LIMIT));
-    out.extend(pick(&value, &["latest_summary"], BODY_LIMIT));
+    out.extend(pick(
+        task,
+        &["body", "result", "last_failure_error"],
+        BODY_LIMIT,
+    ));
+    out.extend(pick(value, &["latest_summary"], BODY_LIMIT));
     out.insert(
         "comments".into(),
         Value::Array(
@@ -681,7 +725,169 @@ pub async fn hermes_kanban_task(board: String, id: String) -> Result<Value, Stri
                 .collect(),
         ),
     );
-    Ok(Value::Object(out))
+    out.insert(
+        "events".into(),
+        Value::Array(rows(value.get("events")).map(project_event).collect()),
+    );
+    out.insert(
+        "runs".into(),
+        Value::Array(
+            rows(value.get("runs"))
+                .map(|r| {
+                    Value::Object(pick(
+                        r,
+                        &[
+                            "id",
+                            "profile",
+                            "status",
+                            "outcome",
+                            "summary",
+                            "error",
+                            "started_at",
+                            "ended_at",
+                        ],
+                        FIELD_LIMIT,
+                    ))
+                })
+                .collect(),
+        ),
+    );
+    Value::Object(out)
+}
+
+/// The tail of a task's worker log. Like terminal output it may contain
+/// sensitive text: it is shown, never logged or persisted.
+#[tauri::command]
+pub async fn hermes_kanban_log(board: String, id: String) -> Result<String, String> {
+    if !valid_task_id(&id) {
+        return Err("That task ID is not valid.".into());
+    }
+    let text = kanban(Some(&board), &["log", "--tail=16384", "--", &id]).await?;
+    Ok(sanitize_text(text.as_bytes(), 16 * 1024))
+}
+
+/// Board totals by status and assignee.
+#[tauri::command]
+pub async fn hermes_kanban_stats(board: String) -> Result<Value, String> {
+    let value = parse_json(&kanban(Some(&board), &["stats", "--json"]).await?)?;
+    Ok(Value::Object(pick(
+        &value,
+        &[
+            "by_status",
+            "by_assignee",
+            "oldest_ready_age_seconds",
+            "now",
+        ],
+        FIELD_LIMIT,
+    )))
+}
+
+// ---- Supervisor preparation ----
+
+/// The ShellGuardian-owned playbook skill installed into the supervisor profile.
+const SUPERVISOR_SKILL: &str = include_str!("../resources/shellguardian-supervisor.SKILL.md");
+const SUPERVISOR_SKILL_DIR: &str = "shellguardian-supervisor";
+const SKILL_MARKER: &str = "managed-by: shellguardian";
+
+/// Toolset names currently enabled for a profile, from `profiles.describe`.
+fn enabled_toolsets(describe: &Value) -> Vec<String> {
+    rows(describe.get("toolsets"))
+        .filter(|t| t.get("enabled").and_then(Value::as_bool) == Some(true))
+        .filter_map(|t| t.get("name").and_then(Value::as_str))
+        .filter(|name| valid_slug(name, 64))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Reads the profile directory from `hermes profile show`. Accepts only an
+/// absolute directory inside the user's home.
+async fn profile_dir(binary: &Path, profile: &str) -> Result<std::path::PathBuf, String> {
+    require_profile_name(profile)?;
+    let child = hermes_command(binary)
+        .args(["profile", "show", profile])
+        .output();
+    let output = tokio::time::timeout(ATTACH_TIMEOUT, child)
+        .await
+        .map_err(|_| "The Hermes CLI did not respond in time.".to_string())?
+        .map_err(|_| "Could not run the installed Hermes CLI.".to_string())?;
+    let text = sanitize_text(&output.stdout, 8192);
+    let path = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Path:"))
+        .map(|p| std::path::PathBuf::from(p.trim()))
+        .ok_or("Hermes did not report where this agent's profile lives.")?;
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let inside_home = home.is_some_and(|home| path.starts_with(home));
+    if !path.is_absolute() || !inside_home || !path.is_dir() {
+        return Err("Hermes reported an unexpected profile location.".into());
+    }
+    Ok(path)
+}
+
+/// Writes the playbook skill. Refuses to replace a file ShellGuardian does not
+/// own, and never touches `SOUL.md` or other skills.
+fn install_supervisor_skill(profile_dir: &Path) -> Result<bool, String> {
+    let dir = profile_dir.join("skills").join(SUPERVISOR_SKILL_DIR);
+    let file = dir.join("SKILL.md");
+    if let Ok(existing) = std::fs::read_to_string(&file) {
+        if !existing.contains(SKILL_MARKER) {
+            return Err(
+                "A different skill named shellguardian-supervisor already exists; it was left alone."
+                    .into(),
+            );
+        }
+        if existing == SUPERVISOR_SKILL {
+            return Ok(false);
+        }
+    } else if file.exists() {
+        return Err("The existing supervisor skill could not be read; it was left alone.".into());
+    }
+    std::fs::create_dir_all(&dir)
+        .and_then(|()| std::fs::write(&file, SUPERVISOR_SKILL))
+        .map_err(|_| "Could not install the supervisor skill.".to_string())?;
+    Ok(true)
+}
+
+/// What `prepare_hermes_supervisor` changed.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisorPreparation {
+    kanban_enabled: bool,
+    skill_installed: bool,
+}
+
+/// Prepares a profile to supervise, on the user's request: enables the
+/// `kanban` toolset (keeping every toolset already enabled) and installs the
+/// ShellGuardian playbook skill. Nothing else in the profile is changed.
+#[tauri::command]
+pub async fn prepare_hermes_supervisor(profile: String) -> Result<SupervisorPreparation, String> {
+    let binary = hermes_path().ok_or("Hermes is not installed on this machine.")?;
+    let describe = call(&profile, "profiles.describe", json!({"name": profile})).await?;
+    let mut toolsets = enabled_toolsets(&describe);
+    let kanban_enabled = if toolsets.iter().any(|t| t == "kanban") {
+        false
+    } else {
+        if toolsets.is_empty() {
+            return Err("Hermes reported no enabled toolsets, so nothing was changed.".into());
+        }
+        toolsets.push("kanban".into());
+        let result = call(
+            &profile,
+            "profiles.configure",
+            json!({"name": profile, "enabled_toolsets": toolsets}),
+        )
+        .await?;
+        if result.pointer("/applied/toolsets").and_then(Value::as_bool) != Some(true) {
+            return Err("Hermes did not apply the kanban toolset.".into());
+        }
+        true
+    };
+    let dir = profile_dir(&binary, &profile).await?;
+    let skill_installed = install_supervisor_skill(&dir)?;
+    Ok(SupervisorPreparation {
+        kanban_enabled,
+        skill_installed,
+    })
 }
 
 fn require_text(text: &str, limit: usize, what: &str) -> Result<(), String> {
@@ -876,6 +1082,66 @@ mod tests {
         assert!(!valid_task_id("a/b"));
         assert!(valid_slug("openai-codex", 100));
         assert!(!valid_slug("x --provider y", 100));
+    }
+
+    #[test]
+    fn task_detail_projects_timeline_and_runs() {
+        let show = json!({
+            "task": {"id": "t_1", "title": "T", "status": "running", "assignee": "guanyu",
+                     "session_id": "local-abc", "workspace_path": "/home/x/secret", "body": "do it"},
+            "comments": [{"author": "you", "body": "hi", "created_at": 5}],
+            "events": [
+                {"kind": "owner_admitted", "created_at": 10, "run_id": 3,
+                 "payload": "{\"session_id\":\"s_9\",\"pid\":4242,\"db\":\"/home/x/state.db\"}"},
+                {"kind": "heartbeat", "created_at": 11, "payload": {"note": "halfway"}},
+                {"kind": "claimed", "created_at": 9, "payload": "not json"},
+            ],
+            "runs": [{"id": 3, "profile": "guanyu", "status": "running", "worker_pid": 4242,
+                      "metadata": {"x": "y"}, "started_at": 9}],
+        });
+        let out = project_task_detail(&show);
+        assert_eq!(out["session_id"], "local-abc");
+        assert!(out.get("workspace_path").is_none());
+        assert_eq!(out["events"][0]["detail"]["session_id"], "s_9");
+        assert!(out["events"][0]["detail"].get("pid").is_none());
+        assert!(out["events"][0]["detail"].get("db").is_none());
+        assert_eq!(out["events"][1]["detail"]["note"], "halfway");
+        assert!(out["events"][2].get("detail").is_none());
+        assert_eq!(out["runs"][0]["profile"], "guanyu");
+        assert!(out["runs"][0].get("worker_pid").is_none());
+        assert!(out["runs"][0].get("metadata").is_none());
+        assert_eq!(out["comments"][0]["body"], "hi");
+    }
+
+    #[test]
+    fn toolsets_round_trip_keeps_only_enabled_valid_names() {
+        let describe = json!({"toolsets": [
+            {"name": "terminal", "enabled": true},
+            {"name": "web", "enabled": false},
+            {"name": "bad name", "enabled": true},
+            {"name": "memory", "enabled": true},
+        ]});
+        assert_eq!(enabled_toolsets(&describe), vec!["terminal", "memory"]);
+        assert!(enabled_toolsets(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn supervisor_skill_never_replaces_a_foreign_skill() {
+        let home = tempfile::tempdir().unwrap();
+        assert!(SUPERVISOR_SKILL.contains(SKILL_MARKER));
+        assert!(SUPERVISOR_SKILL.starts_with("---\nname: shellguardian-supervisor\n"));
+        assert_eq!(install_supervisor_skill(home.path()), Ok(true));
+        let file = home.path().join("skills/shellguardian-supervisor/SKILL.md");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), SUPERVISOR_SKILL);
+        // Unchanged: nothing to do. Older managed copy: updated.
+        assert_eq!(install_supervisor_skill(home.path()), Ok(false));
+        std::fs::write(&file, "old <!-- managed-by: shellguardian -->").unwrap();
+        assert_eq!(install_supervisor_skill(home.path()), Ok(true));
+        // A user's own skill of the same name is left alone.
+        std::fs::write(&file, "my own skill").unwrap();
+        assert!(install_supervisor_skill(home.path()).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "my own skill");
+        assert!(!home.path().join("SOUL.md").exists());
     }
 
     #[allow(clippy::result_large_err)]

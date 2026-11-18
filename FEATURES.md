@@ -277,6 +277,16 @@ Test Criteria:
     with `--json`, plus `create` and `comment`. Free text is passed as `--opt=value` or
     after `--`; IDs must start alphanumeric. Assigned tasks run when that agent's
     gateway runs.
+  - Live board: the Kanban tab polls every 3 seconds while visible. "Now running" lists
+    active tasks with elapsed time and the latest heartbeat note. A task shows its event
+    timeline, runs, worker log tail (`kanban log --tail`), and the worker's transcript
+    (session ID from the `owner_admitted` event). Event payloads are projected to a fixed
+    set of scalar fields. Chat lists the tasks its session created and links to them.
+  - "Prepare as supervisor" (explicit click) enables the `kanban` toolset by re-sending
+    the profile's currently enabled toolsets plus `kanban` (`profiles.describe` then
+    `profiles.configure`, which has replace semantics) and installs the ShellGuardian
+    playbook skill `shellguardian-supervisor`. It refuses to replace a same-named skill
+    it does not own and never touches `SOUL.md`.
   - Remote host support is not implemented.
 - **Test criteria**:
   - [x] Rust tests: name/session validation, profile-table parsing, error and
@@ -300,6 +310,15 @@ Test Criteria:
     happens before truncation (2026-11-18).
   - [x] Chromium preview: tabs, Start gateway, key save clears the field, model change,
     sessions and transcript, schedules, kanban columns, create, and comment (2026-11-18).
+  - [x] Rust tests: timeline/run projection drops paths, PIDs, and metadata; toolset
+    round trip; skill install never replaces a foreign skill (2026-11-18).
+  - [x] Chromium preview: a created task moves ready → running → done on its own, the
+    running strip shows its progress note, the timeline, worker log, and worker
+    transcript render, a chat request links to its task, and supervisor preparation
+    reports its result (2026-11-18).
+  - [ ] `scripts/supervisor-acceptance.mjs` against the live supervisor: single task,
+    dependency ordering, no-task question, blocked impossible task, live tracking.
+    Written and syntax-checked; not run because no gateway was running.
   - [ ] Live gateway: attach, `model.options`, `profiles.configure`, `session.list`,
     `session.transcript`, `cron.manage` against a running Hermes 0.16 gateway. The
     protocol was taken from the installed source; no live gateway was running and the
@@ -309,3 +328,22 @@ Test Criteria:
   - [ ] Confirm a dangerous command is denied in a live chat turn.
   - [ ] Complete the setup wizard by hand; confirm no credential reaches the webview.
   - [ ] SSH-only remote discovery and chat using strict host-key verification.
+
+## Supervisor orchestration roadmap
+
+- **Stability**: planned; milestone 1 (watchable board, supervisor tests) implemented
+- **Description**: The supervisor turns requests into kanban tasks; Hermes agents make
+  the decisions; agent CLIs (Codex, Claude Code, Gemini CLI) do the work in OpenShell
+  sandboxes with supervisor-chosen credentials; the user watches live.
+- **Milestones**:
+  1. Watchable board and supervisor acceptance tests (this is in "Hermes supervisor").
+  2. Managed sandboxes: bridge `sandbox create --no-keep`/`exec`/label-guarded delete,
+     a `shellguardian-mcp` stdio server (`providers_list`, `sandboxes_list`,
+     `run_agent_task`), limits in code (existing providers only, managed sandboxes only,
+     default-deny network, concurrency and runtime caps), grants recorded as kanban
+     comments and sandbox labels, and a "Pause all work" control. Needs OpenShell
+     providers and a sandbox image with the agent CLIs, which do not exist yet.
+  3. Usage limits and routing: Codex and Claude (OAuth) limits from `hermes usage`;
+     Gemini and Venice have no quota source in Hermes and need local tracking. A model
+     scoreboard with a grading signal (review step, checks, user rating).
+  4. Role agents on demand from templates, with a maximum count and a retire flow.

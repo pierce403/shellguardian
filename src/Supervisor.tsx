@@ -20,7 +20,14 @@ import {
 } from 'lucide-react';
 import * as api from './api';
 import AgentTerminal from './AgentTerminal';
-import { KanbanPanel, ProviderPanel, SchedulesPanel, SessionsPanel } from './SupervisorPanels';
+import {
+  ChatTasks,
+  KanbanPanel,
+  PrepareSupervisor,
+  ProviderPanel,
+  SchedulesPanel,
+  SessionsPanel,
+} from './SupervisorPanels';
 import type {
   HermesDiscovery,
   HermesProfile,
@@ -196,6 +203,7 @@ export default function Supervisor({
   onToast: (message: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>('chat');
+  const [kanbanFocus, setKanbanFocus] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -550,6 +558,16 @@ export default function Supervisor({
                   </div>
                 )}
               </div>
+              {conversation?.sessionId && (
+                <ChatTasks
+                  key={conversation.sessionId}
+                  sessionId={conversation.sessionId}
+                  onOpen={(id) => {
+                    setKanbanFocus(id);
+                    setTab('kanban');
+                  }}
+                />
+              )}
               <form className="supervisor-compose" onSubmit={(e) => void submit(e)}>
                 <textarea
                   ref={composer}
@@ -699,6 +717,11 @@ export default function Supervisor({
             onChanged={() => void hermes.refresh()}
             onSignIn={signIn}
           />
+          <PrepareSupervisor
+            key={`prepare-${supervisor.name}`}
+            profile={supervisor.name}
+            onChanged={() => void hermes.refresh()}
+          />
         </div>
       )}
       {discovery?.installed && supervisor && tab === 'sessions' && (
@@ -709,7 +732,11 @@ export default function Supervisor({
         />
       )}
       {discovery?.installed && profiles.length > 0 && tab === 'kanban' && (
-        <KanbanPanel profiles={profiles.map((p) => p.name)} />
+        <KanbanPanel
+          profiles={profiles}
+          focus={kanbanFocus}
+          onGatewayChanged={() => void hermes.refresh()}
+        />
       )}
       {discovery?.installed && supervisor && tab === 'schedules' && (
         <SchedulesPanel

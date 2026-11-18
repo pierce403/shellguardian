@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { KeyRound, LoaderCircle, Play, Plus, RefreshCw, Send, TerminalSquare } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  Activity,
+  KeyRound,
+  LoaderCircle,
+  Play,
+  Plus,
+  RefreshCw,
+  Send,
+  TerminalSquare,
+} from 'lucide-react';
 import * as api from './api';
 import type {
+  HermesProfile,
   HermesModelOptions,
   HermesSchedule,
   HermesSession,
@@ -13,6 +23,54 @@ import type {
 } from './types';
 
 const NOT_RUNNING = 'not running';
+const POLL_MS = 3000;
+
+/** Runs `tick` on an interval while the page is visible. */
+function usePoll(tick: () => void, ms: number) {
+  const latest = useRef(tick);
+  latest.current = tick;
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') latest.current();
+    }, ms);
+    return () => window.clearInterval(timer);
+  }, [ms]);
+}
+
+function elapsed(from: Stamp): string {
+  const start = typeof from === 'number' ? from : Number(from);
+  if (!from || Number.isNaN(start)) return '';
+  const seconds = Math.max(
+    0,
+    Math.floor(Date.now() / 1000 - (start > 1e12 ? start / 1000 : start)),
+  );
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+function TranscriptRows({ rows }: { rows: HermesTranscriptRow[] }) {
+  return (
+    <>
+      {rows.length === 0 && <p className="muted-copy">No messages yet.</p>}
+      {rows.map((r, i) => (
+        <div key={i} className={`supervisor-message ${r.role === 'user' ? 'user' : 'supervisor'}`}>
+          <span className="supervisor-role">
+            {r.row_kind === 'compaction'
+              ? 'Summary'
+              : r.role === 'tool'
+                ? `Tool${r.name ? ` · ${r.name}` : ''}`
+                : r.role === 'user'
+                  ? 'You'
+                  : (r.role ?? 'Hermes')}
+            {r.timestamp !== undefined ? ` · ${formatStamp(r.timestamp)}` : ''}
+          </span>
+          <p>{r.text}</p>
+        </div>
+      ))}
+    </>
+  );
+}
 
 function formatStamp(value: Stamp): string {
   if (value === undefined || value === '') return 'Unavailable';
@@ -28,16 +86,17 @@ function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const reload = useCallback(async () => {
-    setLoading(true);
+  // A silent reload (used by polling) shows no spinner and keeps the last data on failure.
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setData(await load());
       setError(null);
     } catch (e) {
-      setData(null);
+      if (!silent) setData(null);
       setError(api.errorMessage(e));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, deps);
   useEffect(() => {
@@ -456,40 +515,206 @@ export function SchedulesPanel({ profile, onStarted }: { profile: string; onStar
   );
 }
 
+// ---- Supervisor preparation ----
+
+export function PrepareSupervisor({
+  profile,
+  onChanged,
+}: {
+  profile: string;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function prepare() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const done = await api.prepareHermesSupervisor(profile);
+      setMessage(
+        done.kanbanEnabled || done.skillInstalled
+          ? `${profile} can now create and track kanban tasks.`
+          : `${profile} was already prepared.`,
+      );
+      onChanged();
+    } catch (e) {
+      setError(api.errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="settings-card" aria-label="Supervisor duties">
+      <div className="section-label">
+        <Activity size={20} />
+        <h3>Supervisor duties for {profile}</h3>
+      </div>
+      <p className="muted-copy">
+        Lets {profile} turn your requests into kanban tasks. This turns on Hermes's kanban tools for{' '}
+        {profile} and adds one ShellGuardian playbook skill. Nothing else in the profile changes.
+      </p>
+      {error && <GatewayError profile={profile} error={error} onStarted={() => void prepare()} />}
+      {message && <p role="status">{message}</p>}
+      <div className="settings-buttons">
+        <button className="button primary" disabled={busy} onClick={() => void prepare()}>
+          {busy && <LoaderCircle size={16} className="spin" />}
+          Prepare {profile} as supervisor
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // ---- Kanban ----
 
 const COLUMNS = ['triage', 'todo', 'ready', 'running', 'blocked', 'review', 'scheduled', 'done'];
+const WAITING = ['ready', 'running', 'review'];
 
-export function KanbanPanel({ profiles }: { profiles: string[] }) {
+function useCurrentBoard() {
   const boards = useLoad<KanbanBoard[]>(() => api.kanbanBoards(), []);
   const [board, setBoard] = useState<string | null>(null);
-  const activeBoard =
+  const active =
     board ?? boards.data?.find((b) => b.is_current)?.slug ?? boards.data?.[0]?.slug ?? null;
+  return { boards, active, setBoard };
+}
+
+function lastNote(task: KanbanTaskDetail | undefined): string | null {
+  const events = task?.events ?? [];
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const note = events[i].detail?.note;
+    if (note) return note;
+  }
+  return null;
+}
+
+function workerSession(task: KanbanTaskDetail): string | null {
+  const events = task.events ?? [];
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const id = events[i].detail?.session_id;
+    if (events[i].kind === 'owner_admitted' && id) return id;
+  }
+  return null;
+}
+
+/** Tasks the supervisor created from one chat session, shown under the chat. */
+export function ChatTasks({
+  sessionId,
+  onOpen,
+}: {
+  sessionId: string;
+  onOpen: (taskId: string) => void;
+}) {
+  const { active } = useCurrentBoard();
+  const tasks = useLoad<KanbanTask[]>(
+    () => (active ? api.kanbanTasks(active) : Promise.resolve([])),
+    [active],
+  );
+  usePoll(() => void tasks.reload(true), POLL_MS);
+  const mine = (tasks.data ?? []).filter((t) => t.session_id === sessionId);
+  if (mine.length === 0) return null;
+  return (
+    <div className="supervisor-chat-tasks" aria-label="Tasks from this conversation">
+      <span className="supervisor-role">Tasks from this conversation</span>
+      {mine.map((t) => (
+        <button key={String(t.id)} className="kanban-card" onClick={() => onOpen(String(t.id))}>
+          <strong>{t.title}</strong>
+          <span>
+            {t.status} · {t.assignee ?? 'Unassigned'}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function KanbanPanel({
+  profiles,
+  focus,
+  onGatewayChanged,
+}: {
+  profiles: HermesProfile[];
+  focus?: string | null;
+  onGatewayChanged: () => void;
+}) {
+  const { boards, active: activeBoard, setBoard } = useCurrentBoard();
   const tasks = useLoad<KanbanTask[]>(
     () => (activeBoard ? api.kanbanTasks(activeBoard) : Promise.resolve([])),
     [activeBoard],
   );
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(focus ?? null);
   const [detail, setDetail] = useState<KanbanTaskDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [log, setLog] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<HermesTranscriptRow[] | null>(null);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [running, setRunning] = useState<Record<string, KanbanTaskDetail>>({});
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [assignee, setAssignee] = useState('');
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [, setClock] = useState(0);
 
-  async function open(id: string) {
-    if (!activeBoard) return;
+  const list = tasks.data ?? [];
+  const runningIds = list.filter((t) => t.status === 'running').map((t) => String(t.id));
+  const runningKey = runningIds.join(',');
+
+  const loadDetail = useCallback(
+    async (id: string, quiet: boolean) => {
+      if (!activeBoard) return;
+      try {
+        const [task, text] = await Promise.all([
+          api.kanbanTask(activeBoard, id),
+          api.kanbanLog(activeBoard, id).catch(() => null),
+        ]);
+        setDetail(task);
+        setLog(text);
+        setDetailError(null);
+      } catch (e) {
+        if (!quiet) setDetail(null);
+        setDetailError(api.errorMessage(e));
+      }
+    },
+    [activeBoard],
+  );
+
+  function open(id: string) {
     setSelected(id);
     setDetail(null);
-    setDetailError(null);
-    try {
-      setDetail(await api.kanbanTask(activeBoard, id));
-    } catch (e) {
-      setDetailError(api.errorMessage(e));
-    }
+    setLog(null);
+    setTranscript(null);
+    setTranscriptError(null);
+    void loadDetail(id, false);
   }
+
+  useEffect(() => {
+    if (focus && activeBoard) open(focus);
+  }, [focus, activeBoard]);
+
+  // Live view: refresh the board, the open task, and each running task's latest note.
+  usePoll(() => {
+    setClock((n) => n + 1);
+    void tasks.reload(true);
+    if (selected) void loadDetail(selected, true);
+  }, POLL_MS);
+  useEffect(() => {
+    if (!activeBoard) return;
+    let cancelled = false;
+    void Promise.all(
+      runningIds.map((id) => api.kanbanTask(activeBoard, id).catch(() => null)),
+    ).then((details) => {
+      if (cancelled) return;
+      setRunning(
+        Object.fromEntries(details.flatMap((d) => (d ? [[String(d.id), d] as const] : []))),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [runningKey, activeBoard, tasks.data]);
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -500,8 +725,8 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
       await api.createKanbanTask(activeBoard, title.trim(), body, assignee || null);
       setTitle('');
       setBody('');
-      await tasks.reload();
-      void boards.reload();
+      await tasks.reload(true);
+      void boards.reload(true);
     } catch (e) {
       setFormError(api.errorMessage(e));
     } finally {
@@ -516,7 +741,7 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
     try {
       await api.commentKanbanTask(activeBoard, selected, comment.trim());
       setComment('');
-      await open(selected);
+      await loadDetail(selected, true);
     } catch (e) {
       setDetailError(api.errorMessage(e));
     } finally {
@@ -524,7 +749,17 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
     }
   }
 
-  const list = tasks.data ?? [];
+  async function showTranscript(task: KanbanTaskDetail) {
+    const session = workerSession(task);
+    if (!session || !task.assignee) return;
+    setTranscriptError(null);
+    try {
+      setTranscript(await api.hermesTranscript(task.assignee, session));
+    } catch (e) {
+      setTranscriptError(api.errorMessage(e));
+    }
+  }
+
   const extra = [...new Set(list.map((t) => t.status ?? 'unknown'))].filter(
     (s) => !COLUMNS.includes(s),
   );
@@ -533,9 +768,52 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
       list.some((t) => (t.status ?? 'unknown') === status) ||
       ['todo', 'ready', 'running', 'done'].includes(status),
   );
+  // Assignees with queued or running work whose gateway is down: their tasks will not move.
+  const stalled = [
+    ...new Set(
+      list
+        .filter((t) => WAITING.includes(t.status ?? '') && t.assignee)
+        .map((t) => t.assignee as string),
+    ),
+  ].filter((name) => {
+    const profile = profiles.find((p) => p.name === name);
+    return profile && profile.gateway !== 'running';
+  });
 
   return (
     <div className="supervisor-layout">
+      {stalled.map((name) => (
+        <GatewayError
+          key={name}
+          profile={name}
+          error={`${name} has tasks waiting, but its gateway is ${NOT_RUNNING}.`}
+          onStarted={onGatewayChanged}
+        />
+      ))}
+      <section className="settings-card" aria-label="Now running">
+        <div className="section-label">
+          <Activity size={20} />
+          <h3>Now running</h3>
+        </div>
+        {runningIds.length === 0 && <p className="muted-copy">No tasks are running.</p>}
+        {list
+          .filter((t) => t.status === 'running')
+          .map((t) => (
+            <button
+              key={String(t.id)}
+              className="supervisor-list-item"
+              onClick={() => open(String(t.id))}
+            >
+              <strong>{t.title}</strong>
+              <span>
+                {t.assignee ?? 'Unassigned'}
+                {t.started_at ? ` · running for ${elapsed(t.started_at)}` : ''}
+                {lastNote(running[String(t.id)]) ? ` · ${lastNote(running[String(t.id)])}` : ''}
+              </span>
+            </button>
+          ))}
+      </section>
+
       <section className="settings-card" aria-label="Kanban board">
         <div className="section-label">
           <h3>Kanban</h3>
@@ -565,7 +843,8 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
           />
         </div>
         <p className="muted-copy">
-          Hermes's shared task board. Assigned tasks run when that agent's gateway is running.
+          Hermes's shared task board, updated every few seconds. Assigned tasks run when that
+          agent's gateway is running.
         </p>
         {(boards.error || tasks.error) && (
           <p className="form-error" role="alert">
@@ -584,7 +863,7 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
                   <button
                     key={String(t.id)}
                     className={`kanban-card${selected === String(t.id) ? ' selected' : ''}`}
-                    onClick={() => void open(String(t.id))}
+                    onClick={() => open(String(t.id))}
                   >
                     <strong>{t.title}</strong>
                     <span>{t.assignee ?? 'Unassigned'}</span>
@@ -617,9 +896,21 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
                 <span>Assignee</span>
                 <strong>{detail.assignee ?? 'Unassigned'}</strong>
               </div>
+              {(detail.model_override || detail.provider_override) && (
+                <div className="settings-row">
+                  <span>Model for this task</span>
+                  <strong>
+                    {detail.model_override ?? 'default'}
+                    {detail.provider_override ? ` via ${detail.provider_override}` : ''}
+                  </strong>
+                </div>
+              )}
               <div className="settings-row">
                 <span>Created</span>
-                <strong>{formatStamp(detail.created_at)}</strong>
+                <strong>
+                  {formatStamp(detail.created_at)}
+                  {detail.created_by ? ` by ${detail.created_by}` : ''}
+                </strong>
               </div>
               {detail.body && <p className="kanban-text">{detail.body}</p>}
               {(detail.result || detail.latest_summary) && (
@@ -628,6 +919,75 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
                   <p className="kanban-text">{detail.result || detail.latest_summary}</p>
                 </>
               )}
+              {detail.last_failure_error && (
+                <p className="form-error">{detail.last_failure_error}</p>
+              )}
+
+              <h4>Timeline</h4>
+              {(detail.events ?? []).length === 0 && (
+                <p className="muted-copy">No activity recorded yet.</p>
+              )}
+              <ol className="kanban-timeline" aria-label="Task timeline">
+                {(detail.events ?? []).map((e, i) => (
+                  <li key={i}>
+                    <strong>{e.kind}</strong>
+                    <span>{formatStamp(e.created_at)}</span>
+                    {(e.detail?.note ||
+                      e.detail?.reason ||
+                      e.detail?.summary ||
+                      e.detail?.error ||
+                      e.detail?.outcome) && (
+                      <p>
+                        {e.detail.note ??
+                          e.detail.reason ??
+                          e.detail.summary ??
+                          e.detail.error ??
+                          e.detail.outcome}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+
+              {(detail.runs ?? []).length > 0 && (
+                <>
+                  <h4>Runs</h4>
+                  {(detail.runs ?? []).map((r) => (
+                    <div className="settings-row" key={String(r.id)}>
+                      <span>
+                        {r.profile ?? 'worker'} · {formatStamp(r.started_at)}
+                      </span>
+                      <strong>{r.outcome ?? r.status}</strong>
+                      {r.error && <p className="form-error">{r.error}</p>}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {log && (
+                <details className="hermes-profiles" open={detail.status === 'running'}>
+                  <summary>Worker log</summary>
+                  <pre aria-label="Worker log">{log}</pre>
+                </details>
+              )}
+              {workerSession(detail) && (
+                <div className="settings-buttons">
+                  <button className="button" onClick={() => void showTranscript(detail)}>
+                    {transcript ? 'Refresh worker transcript' : 'View worker transcript'}
+                  </button>
+                </div>
+              )}
+              {transcriptError && (
+                <p className="form-error" role="alert">
+                  {transcriptError}
+                </p>
+              )}
+              {transcript && (
+                <div className="supervisor-transcript" aria-label="Worker transcript">
+                  <TranscriptRows rows={transcript} />
+                </div>
+              )}
+
               <h4>Comments</h4>
               {detail.comments.length === 0 && <p className="muted-copy">No comments.</p>}
               {detail.comments.map((c, i) => (
@@ -695,8 +1055,8 @@ export function KanbanPanel({ profiles }: { profiles: string[] }) {
             >
               <option value="">Nobody yet</option>
               {profiles.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+                <option key={p.name} value={p.name}>
+                  {p.name}
                 </option>
               ))}
             </select>

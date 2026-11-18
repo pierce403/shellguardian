@@ -248,3 +248,20 @@ the release-only AppImage/path checks permit the intended migration. Receipts ar
 `wayland-verification.json` and `migration-verification.json` beside the standard
 public-release report. The user's per-user installation was upgraded to those same
 verified bytes without closing the existing window or modifying favorites.
+
+## Supervisor acceptance (live, spends model calls)
+
+`scripts/supervisor-acceptance.mjs` asks the supervisor profile for work in chat and
+checks the kanban board: a single task, a dependency, a question that needs no task,
+and an impossible task that must end blocked. It uses a cleared environment and a
+dedicated board (`sg-acceptance`), never the default board or OpenShell, and it never
+starts a gateway. Prepare first: start the supervisor's gateway and click "Prepare as
+supervisor" in the app. Then:
+
+```sh
+SHELLGUARDIAN_SUPERVISOR_LIVE=1 node scripts/supervisor-acceptance.mjs
+```
+
+`SG_SUPERVISOR`, `SG_WORKER`, `SG_BOARD`, `SG_SCENARIOS=1,3`, and `SG_KEEP=1` adjust the
+run. Tasks dispatch about once a minute, so a full run takes several minutes. Keep the
+Kanban tab open to watch it.

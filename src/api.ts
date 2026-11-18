@@ -29,6 +29,7 @@ import type {
   KanbanBoard,
   KanbanTask,
   KanbanTaskDetail,
+  SupervisorPreparation,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
@@ -283,9 +284,29 @@ export async function hermesChat(
 ): Promise<HermesReply> {
   if (previewMode) {
     previewTurn += 1;
+    const session = sessionId ?? 'sample_session';
+    if (/\btask\b/i.test(message)) {
+      const task: KanbanTaskDetail = {
+        id: `t_sample${previewKanban.length + 1}`,
+        title: message.slice(0, 60),
+        assignee: profile,
+        status: 'ready',
+        session_id: session,
+        created_by: profile,
+        created_at: Math.floor(Date.now() / 1000),
+        comments: [],
+        events: [{ kind: 'created', created_at: Math.floor(Date.now() / 1000) }],
+      };
+      previewLive.add(String(task.id));
+      previewKanban = [...previewKanban, task];
+      return {
+        reply: `Sample preview: created task ${task.id} for ${profile}. No Hermes agent was contacted.`,
+        sessionId: session,
+      };
+    }
     return {
       reply: `Sample preview reply ${previewTurn}. No Hermes agent was contacted.`,
-      sessionId: sessionId ?? 'sample_session',
+      sessionId: session,
     };
   }
   return invoke('hermes_chat', { profile, message, sessionId });
@@ -444,11 +465,65 @@ export async function kanbanBoards(): Promise<KanbanBoard[]> {
   requireDesktop();
   return invoke('hermes_kanban_boards');
 }
+/** Sample preview only: tasks created here with an assignee advance one step per read. */
+const previewLive = new Set<string>();
+function advancePreviewKanban() {
+  const now = Math.floor(Date.now() / 1000);
+  previewKanban = previewKanban.map((task) => {
+    if (!previewLive.has(String(task.id))) return task;
+    const events = task.events ?? [];
+    if (task.status === 'ready')
+      return {
+        ...task,
+        status: 'running',
+        started_at: now,
+        events: [
+          ...events,
+          { kind: 'claimed', created_at: now, run_id: 1 },
+          {
+            kind: 'owner_admitted',
+            created_at: now,
+            run_id: 1,
+            detail: { session_id: 'sample_worker_session' },
+          },
+          { kind: 'heartbeat', created_at: now, run_id: 1, detail: { note: 'Sample step 1 of 2' } },
+        ],
+        runs: [{ id: 1, profile: task.assignee, status: 'running', started_at: now }],
+      };
+    if (task.status === 'running') {
+      previewLive.delete(String(task.id));
+      return {
+        ...task,
+        status: 'done',
+        completed_at: now,
+        result: 'Sample preview result. No agent ran.',
+        events: [...events, { kind: 'completed', created_at: now, run_id: 1 }],
+        runs: [
+          {
+            id: 1,
+            profile: task.assignee,
+            status: 'done',
+            outcome: 'completed',
+            summary: 'Sample preview result.',
+            started_at: task.started_at,
+            ended_at: now,
+          },
+        ],
+      };
+    }
+    return task;
+  });
+}
 export async function kanbanTasks(board: string): Promise<KanbanTask[]> {
-  if (previewMode)
-    return previewOnly(
-      previewKanban.map(({ body: _b, result: _r, comments: _c, ...task }) => task),
+  if (previewMode) {
+    const tasks = previewOnly(
+      previewKanban.map(
+        ({ body: _b, result: _r, comments: _c, events: _e, runs: _n, ...task }) => task,
+      ),
     );
+    advancePreviewKanban();
+    return tasks;
+  }
   requireDesktop();
   return invoke('hermes_kanban_tasks', { board });
 }
@@ -474,13 +549,29 @@ export async function createKanbanTask(
       body,
       assignee: assignee ?? undefined,
       status: assignee ? 'ready' : 'todo',
+      created_at: Math.floor(Date.now() / 1000),
       comments: [],
+      events: [{ kind: 'created', created_at: Math.floor(Date.now() / 1000) }],
     };
+    if (assignee) previewLive.add(String(task.id));
     previewKanban = [...previewKanban, task];
     return previewOnly(task);
   }
   requireDesktop();
   return invoke('create_hermes_kanban_task', { board, title, body, assignee });
+}
+export async function kanbanLog(board: string, id: string): Promise<string> {
+  if (previewMode) return `Sample preview log for ${id}. No agent ran.\n`;
+  requireDesktop();
+  return invoke('hermes_kanban_log', { board, id });
+}
+export async function prepareHermesSupervisor(profile: string): Promise<SupervisorPreparation> {
+  if (previewMode) {
+    previewGateway();
+    return { kanbanEnabled: true, skillInstalled: true };
+  }
+  requireDesktop();
+  return invoke('prepare_hermes_supervisor', { profile });
 }
 export async function commentKanbanTask(board: string, id: string, text: string): Promise<void> {
   if (previewMode) {

@@ -210,6 +210,9 @@ test('sample supervisor chats, creates agents, and stays simulated', async ({ pa
   await provider.getByLabel('Model').fill('sample/model-mini');
   await provider.getByRole('button', { name: 'Use this model' }).click();
   await expect(provider).toContainText('default now uses sample/model-mini via sample-provider.');
+  const duties = page.getByRole('region', { name: 'Supervisor duties' });
+  await duties.getByRole('button', { name: 'Prepare default as supervisor' }).click();
+  await expect(duties).toContainText('default can now create and track kanban tasks.');
 
   await tab('Sessions');
   const sessions = page.getByRole('region', { name: 'Hermes sessions' });
@@ -243,12 +246,54 @@ test('sample kanban lists, creates, and comments on tasks', async ({ page }) => 
   await form.getByLabel('Assign to').selectOption('guanyu');
   await expect(form).toContainText('guanyu will start this task');
   await form.getByRole('button', { name: 'Create task' }).click();
+
+  // The board updates itself: the task starts, reports progress, and finishes.
+  const running = page.getByRole('region', { name: 'Now running' });
+  await expect(running).toContainText('Check sandbox policies', { timeout: 10_000 });
+  await expect(running).toContainText('Sample step 1 of 2');
+  await expect(board.getByLabel('done tasks')).toContainText('Check sandbox policies', {
+    timeout: 10_000,
+  });
+  await expect(running).toContainText('No tasks are running.');
   await board.getByRole('button', { name: /Check sandbox policies/ }).click();
   const task = page.getByRole('region', { name: 'Kanban task', exact: true });
   await expect(task.getByRole('heading', { name: 'Check sandbox policies' })).toBeVisible();
+  const timeline = task.getByLabel('Task timeline');
+  await expect(timeline).toContainText('claimed');
+  await expect(timeline).toContainText('Sample step 1 of 2');
+  await expect(timeline).toContainText('completed');
+  await expect(task).toContainText('Sample preview result. No agent ran.');
+  await task.getByText('Worker log').click();
+  await expect(task.getByLabel('Worker log')).toContainText('Sample preview log');
+  await task.getByRole('button', { name: 'View worker transcript' }).click();
+  await expect(task.getByLabel('Worker transcript')).toContainText(
+    'Sample answer. No Hermes agent was contacted.',
+  );
   await task.getByLabel('Comment').fill('Looks good');
   await task.getByRole('button', { name: 'Comment' }).click();
   await expect(task).toContainText('Looks good');
+});
+
+test('sample chat request creates a task that links to the board', async ({ page }) => {
+  await page.goto('/?preview=1');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  const chat = page.getByRole('region', { name: 'Supervisor chat' });
+  const box = chat.getByLabel('Message guanyu');
+  await box.fill('Create a task to check the gateway logs');
+  await box.press('Enter');
+  await expect(chat.getByText('Sample preview: created task', { exact: false })).toBeVisible();
+  const mine = chat.getByLabel('Tasks from this conversation');
+  await expect(mine).toContainText('Create a task to check the gateway logs');
+  await mine.getByRole('button', { name: /Create a task to check/ }).click();
+  await expect(page.getByRole('tab', { name: 'Kanban', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const task = page.getByRole('region', { name: 'Kanban task', exact: true });
+  await expect(
+    task.getByRole('heading', { name: 'Create a task to check the gateway logs' }),
+  ).toBeVisible();
+  await expect(task).toContainText('by guanyu');
 });
 
 test('sidebar shows the Hermes gateway beside OpenShell', async ({ page }) => {
