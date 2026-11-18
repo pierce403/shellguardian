@@ -625,3 +625,20 @@ existing window) is not implemented yet.
 Native smoke (private D-Bus, Xvfb, live gateway) passed for absent and detected
 Hermes. Evidence: `test-results/native-supervisor-*.png`.
 
+## 2026-11-18: in-app Hermes installation and setup
+
+The owner chose the official install script over a pinned PyPI install, and an in-app
+setup terminal over a separate window. `install.sh` is unversioned and unsigned
+(it pins and hashes only its own uv download), so each run is bound to the SHA-256
+the user reviewed and the staged file is re-hashed before `/bin/bash` runs it. The
+script installs to `~/.hermes/hermes-agent` and `~/.local/bin/hermes`, provides its
+own Python 3.14, may `sudo` for libatomic, and accepts `--skip-setup`.
+
+`tempfile` directories honour the umask (0775 here), not 0700. The staging
+directory now sets 0700 explicitly; a test caught this.
+
+The terminal layer gained a lease-free `open_local` path that reuses the bounded
+buffers, process-group cleanup, and read/write/resize/close IPC. Native WebKit
+showed hermes-agent 0.16.0's setup wizard (Nous Portal OAuth quick setup or
+bring-your-own-keys) in the in-app terminal for an isolated profile.
+

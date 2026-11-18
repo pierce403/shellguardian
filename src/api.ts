@@ -18,6 +18,8 @@ import type {
   AgentTerminalRead,
   HermesDiscovery,
   HermesReply,
+  HermesTerminalTarget,
+  InstallerPreview,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
@@ -231,9 +233,27 @@ export async function createHermesProfile(name: string): Promise<void> {
   }
   return invoke('create_hermes_profile', { name });
 }
-export async function startHermesSetup(profile: string): Promise<void> {
-  if (previewMode) return;
-  return invoke('start_hermes_setup', { profile });
+export async function prepareHermesInstaller(): Promise<InstallerPreview> {
+  if (previewMode)
+    return {
+      url: 'https://hermes-agent.nousresearch.com/install.sh',
+      sha256: '0'.repeat(64),
+      size: 0,
+      script: '# Sample preview only. No installer was downloaded.\n',
+    };
+  return invoke('prepare_hermes_installer');
+}
+export async function openHermesTerminal(
+  target: HermesTerminalTarget,
+  cols: number,
+  rows: number,
+): Promise<AgentTerminalSession> {
+  if (previewMode || !desktopMode) throw new Error('Hermes terminals require the desktop app.');
+  const action =
+    target.hermes === 'install'
+      ? { action: 'install', sha256: target.sha256 }
+      : { action: 'setup', profile: target.profile };
+  return invoke('open_hermes_terminal', { action, cols, rows });
 }
 export async function hermesChat(
   profile: string,

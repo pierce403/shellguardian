@@ -140,7 +140,8 @@ fn main() {
             get_snapshot,
             hermes::discover_hermes,
             hermes::create_hermes_profile,
-            hermes::start_hermes_setup,
+            hermes::prepare_hermes_installer,
+            hermes::open_hermes_terminal,
             hermes::hermes_chat,
             hermes::open_hermes_install_guide,
             get_agent_detail,
@@ -167,6 +168,7 @@ fn main() {
         .setup(|app| {
             app.manage(SshConnections::default());
             app.manage(TerminalSessions::default());
+            app.manage(hermes::HermesInstaller::default());
             let window = app
                 .get_webview_window("main")
                 .expect("configured main window");

@@ -1,13 +1,18 @@
-//! Local Hermes supervisor: discovery, opt-in profile onboarding, and chat.
+//! Local Hermes supervisor: installation, discovery, profiles, setup, and chat.
 //!
-//! Runs only the installed `hermes` executable (and, for interactive setup,
-//! the desktop's `x-terminal-emulator`) with fixed argument arrays. Never runs a
-//! host shell, installs software, accepts programs or paths from the webview,
-//! or reads Hermes credentials. Hermes children get a cleared environment so
-//! provider keys exported in the user's desktop session are never picked up
-//! and sent to whichever provider a profile defaults to.
-use serde::Serialize;
-use std::ffi::{OsStr, OsString};
+//! Runs only the installed `hermes` executable with fixed argument arrays, plus
+//! one user-confirmed exception: Hermes's official installer script, downloaded
+//! from a fixed HTTPS URL, shown to the user with its SHA-256, and run with
+//! `/bin/bash` in an in-app terminal only for that exact hash. The webview never
+//! supplies a program, path, URL, or environment, and ShellGuardian never reads
+//! Hermes credentials. Hermes children get a cleared environment so provider
+//! keys exported in the user's desktop session are never picked up and sent to
+//! whichever provider a profile defaults to.
+use crate::terminal_sessions::{dimensions, TerminalSession, TerminalSessions};
+use portable_pty::CommandBuilder;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::OnceLock;
@@ -15,6 +20,11 @@ use std::time::Duration;
 use tauri_plugin_opener::OpenerExt;
 use tokio::process::Command;
 
+/// Hermes's official POSIX installer. Unversioned and unsigned upstream, so
+/// every run is bound to the SHA-256 the user was shown.
+const INSTALL_SCRIPT_URL: &str = "https://hermes-agent.nousresearch.com/install.sh";
+/// Upper bound on the downloaded installer, in bytes.
+const INSTALL_SCRIPT_LIMIT: usize = 512 * 1024;
 /// Official Hermes installation guide, opened in the user's browser.
 const INSTALL_GUIDE: &str =
     "https://hermes-agent.nousresearch.com/docs/getting-started/installation/";
@@ -51,17 +61,6 @@ const HERMES_ENV_ALLOWLIST: &[&str] = &[
     "XDG_STATE_HOME",
     "HERMES_HOME",
 ];
-/// Additional variables the setup terminal needs to open a window.
-const TERMINAL_ENV_ALLOWLIST: &[&str] = &[
-    "DISPLAY",
-    "WAYLAND_DISPLAY",
-    "XAUTHORITY",
-    "XDG_RUNTIME_DIR",
-    "DBUS_SESSION_BUS_ADDRESS",
-    "XDG_SESSION_TYPE",
-    "XDG_CURRENT_DESKTOP",
-];
-
 /// One Hermes profile as reported by `hermes profile list`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -282,17 +281,6 @@ fn chat_args(profile: &str, message: &str, session_id: Option<&str>) -> Vec<Stri
     args
 }
 
-/// Arguments for launching interactive setup in a separate terminal window.
-fn terminal_setup_args(binary: &Path, profile: &str) -> Vec<OsString> {
-    vec![
-        "-e".into(),
-        binary.as_os_str().to_owned(),
-        "-p".into(),
-        profile.into(),
-        "setup".into(),
-    ]
-}
-
 async fn run_hermes(binary: &Path, args: &[&str]) -> Result<std::process::Output, String> {
     let child = hermes_command(binary).args(args).output();
     tokio::time::timeout(COMMAND_TIMEOUT, child)
@@ -363,37 +351,233 @@ async fn create_with(binary: &Path, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens Hermes's interactive setup for a profile in the user's own terminal
-/// so provider credentials never pass through the webview.
+/// Builds a PTY command with the same cleared environment as other Hermes
+/// children, plus a terminal type for the in-app emulator.
+fn pty_command(program: &Path, args: &[&OsStr]) -> CommandBuilder {
+    let mut command = CommandBuilder::new(program);
+    command.args(args);
+    command.env_clear();
+    for name in HERMES_ENV_ALLOWLIST {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    command.env("TERM", "xterm-256color");
+    if let Some(home) = std::env::var_os("HOME").filter(|h| Path::new(h).is_absolute()) {
+        command.cwd(home);
+    }
+    command
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Accepts only a bounded, UTF-8, `#!`-prefixed script without NUL bytes.
+fn validate_installer(bytes: &[u8]) -> Result<&str, String> {
+    if bytes.is_empty() || bytes.len() > INSTALL_SCRIPT_LIMIT {
+        return Err("The Hermes installer download had an unexpected size.".into());
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| "The Hermes installer download was not a text script.".to_string())?;
+    if !text.starts_with("#!") || text.contains('\0') {
+        return Err("The Hermes installer download was not a shell script.".into());
+    }
+    Ok(text)
+}
+
+struct StagedInstaller {
+    /// Owner-only directory; dropping it removes the script.
+    _dir: tempfile::TempDir,
+    path: PathBuf,
+    sha256: String,
+}
+
+/// Holds at most one downloaded installer, in memory and a private temp dir.
+#[derive(Default)]
+pub struct HermesInstaller {
+    staged: tokio::sync::Mutex<Option<StagedInstaller>>,
+}
+
+/// What the user reviews before choosing to run the installer.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallerPreview {
+    url: &'static str,
+    sha256: String,
+    size: usize,
+    script: String,
+}
+
+async fn download_installer() -> Result<Vec<u8>, String> {
+    let failed = || "Could not download the Hermes installer. Check your connection and try again.";
+    let client = reqwest::Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(30))
+        .user_agent("ShellGuardian")
+        .build()
+        .map_err(|_| failed().to_string())?;
+    let mut response = client
+        .get(INSTALL_SCRIPT_URL)
+        .send()
+        .await
+        .map_err(|_| failed().to_string())?;
+    if response.status() != reqwest::StatusCode::OK {
+        return Err(format!(
+            "The Hermes installer URL returned HTTP {}. Nothing was run.",
+            response.status().as_u16()
+        ));
+    }
+    if response
+        .content_length()
+        .is_some_and(|len| len > INSTALL_SCRIPT_LIMIT as u64)
+    {
+        return Err("The Hermes installer download had an unexpected size.".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| failed().to_string())? {
+        if bytes.len() + chunk.len() > INSTALL_SCRIPT_LIMIT {
+            return Err("The Hermes installer download had an unexpected size.".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+fn stage_installer(bytes: &[u8]) -> Result<StagedInstaller, String> {
+    validate_installer(bytes)?;
+    let failed = |_| "Could not save the Hermes installer privately.".to_string();
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("shellguardian-hermes-");
+    // Owner-only at creation, independent of the process umask.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let dir = builder.tempdir().map_err(failed)?;
+    let path = dir.path().join("install.sh");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    use std::io::Write;
+    options
+        .open(&path)
+        .and_then(|mut file| file.write_all(bytes).and_then(|_| file.sync_all()))
+        .map_err(failed)?;
+    Ok(StagedInstaller {
+        _dir: dir,
+        path,
+        sha256: sha256_hex(bytes),
+    })
+}
+
+/// Downloads Hermes's official installer for review. Nothing runs until the
+/// user starts it for this exact SHA-256.
 #[tauri::command]
-pub async fn start_hermes_setup(profile: String) -> Result<(), String> {
-    require_profile_name(&profile)?;
-    let binary = hermes_path().ok_or("Install Hermes before starting setup.")?;
-    #[cfg(target_os = "linux")]
-    {
-        let mut command = Command::new("x-terminal-emulator");
-        scrub_env(
-            &mut command,
-            &[HERMES_ENV_ALLOWLIST, TERMINAL_ENV_ALLOWLIST],
-        );
-        let mut child = command
-            .args(terminal_setup_args(&binary, &profile))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|_| "Could not launch a terminal for Hermes setup.".to_string())?;
-        // Reap the terminal when the user closes it; it outlives this call.
-        tokio::spawn(async move {
-            let _ = child.wait().await;
-        });
-        Ok(())
+pub async fn prepare_hermes_installer(
+    installer: tauri::State<'_, HermesInstaller>,
+) -> Result<InstallerPreview, String> {
+    if hermes_path().is_some() {
+        return Err("Hermes is already installed. Refresh instead.".into());
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (binary, terminal_setup_args);
-        Err("Interactive setup is currently supported on Linux only.".into())
+    let bytes = download_installer().await?;
+    let staged = stage_installer(&bytes)?;
+    let preview = InstallerPreview {
+        url: INSTALL_SCRIPT_URL,
+        sha256: staged.sha256.clone(),
+        size: bytes.len(),
+        script: String::from_utf8_lossy(&bytes).into_owned(),
+    };
+    *installer.staged.lock().await = Some(staged);
+    Ok(preview)
+}
+
+/// A fixed Hermes action for the in-app terminal.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "action", rename_all = "camelCase")]
+pub enum HermesTerminalAction {
+    /// Run the staged official installer, only if its hash still matches.
+    Install { sha256: String },
+    /// Run `hermes -p <profile> setup`.
+    Setup { profile: String },
+}
+
+/// Re-reads the staged script and builds its command only if it is byte for
+/// byte the script the user reviewed.
+fn installer_command(staged: &StagedInstaller, confirmed: &str) -> Result<CommandBuilder, String> {
+    if staged.sha256 != confirmed {
+        return Err("The installer changed since you reviewed it. Download it again.".into());
     }
+    let bytes = std::fs::read(&staged.path).map_err(|_| {
+        "The reviewed installer is no longer available. Download it again.".to_string()
+    })?;
+    if sha256_hex(&bytes) != confirmed {
+        return Err("The installer changed since you reviewed it. Download it again.".into());
+    }
+    // Setup runs afterwards, per profile, in this same in-app terminal.
+    Ok(pty_command(
+        Path::new("/bin/bash"),
+        &[staged.path.as_os_str(), OsStr::new("--skip-setup")],
+    ))
+}
+
+fn setup_command(binary: &Path, profile: &str) -> Result<CommandBuilder, String> {
+    require_profile_name(profile)?;
+    Ok(pty_command(
+        binary,
+        &[OsStr::new("-p"), OsStr::new(profile), OsStr::new("setup")],
+    ))
+}
+
+/// Opens an in-app terminal for a fixed Hermes action. Interactive output may
+/// include sensitive setup details; like sandbox terminals it is shown but
+/// never logged or persisted, and ShellGuardian never reads stored keys.
+#[tauri::command]
+pub async fn open_hermes_terminal(
+    window: tauri::WebviewWindow,
+    terminals: tauri::State<'_, TerminalSessions>,
+    installer: tauri::State<'_, HermesInstaller>,
+    action: HermesTerminalAction,
+    cols: u16,
+    rows: u16,
+) -> openshell_bridge::Result<TerminalSession> {
+    use openshell_bridge::Error;
+    let size = dimensions(cols, rows)?;
+    let (command, start_error) = match action {
+        HermesTerminalAction::Install { sha256 } => {
+            if hermes_path().is_some() {
+                return Err(Error::new("Hermes is already installed. Refresh instead."));
+            }
+            let staged = installer.staged.lock().await;
+            let staged = staged
+                .as_ref()
+                .ok_or_else(|| Error::new("Download the Hermes installer before running it."))?;
+            (
+                installer_command(staged, &sha256).map_err(Error::new)?,
+                "Could not start the Hermes installer with /bin/bash.",
+            )
+        }
+        HermesTerminalAction::Setup { profile } => {
+            let binary = hermes_path()
+                .ok_or_else(|| Error::new("Hermes is not installed on this machine."))?;
+            (
+                setup_command(&binary, &profile).map_err(Error::new)?,
+                "Could not start Hermes setup.",
+            )
+        }
+    };
+    terminals
+        .open_local(window.label(), command, size, start_error)
+        .await
 }
 
 fn chat_lock() -> &'static tokio::sync::Mutex<()> {
@@ -468,6 +652,7 @@ pub fn open_hermes_install_guide(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::fs;
 
     /// Serializes tests that take the process-wide one-turn chat lock.
@@ -682,21 +867,95 @@ mod tests {
     }
 
     #[test]
-    fn terminal_args_run_only_fixed_setup_command() {
-        let args = terminal_setup_args(Path::new("/opt/hermes bin/hermes"), "scout");
-        let expected: Vec<OsString> = ["-e", "/opt/hermes bin/hermes", "-p", "scout", "setup"]
-            .into_iter()
-            .map(OsString::from)
+    fn installer_validation_rejects_non_scripts() {
+        assert!(validate_installer(b"#!/bin/sh\necho hi\n").is_ok());
+        assert!(validate_installer(b"").is_err());
+        assert!(validate_installer(b"<html>not a script</html>").is_err());
+        assert!(validate_installer(b"#!/bin/sh\n\0").is_err());
+        assert!(validate_installer(&[b'#', b'!', 0xff, 0xfe]).is_err());
+        let mut big = b"#!/bin/sh\n".to_vec();
+        big.resize(INSTALL_SCRIPT_LIMIT + 1, b'#');
+        assert!(validate_installer(&big).is_err());
+        assert!(INSTALL_SCRIPT_URL.starts_with("https://hermes-agent.nousresearch.com/"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_installer_is_private_and_bound_to_its_hash() {
+        use std::os::unix::fs::PermissionsExt;
+        let script = b"#!/bin/sh\necho install\n";
+        let staged = stage_installer(script).unwrap();
+        assert_eq!(staged.sha256, sha256_hex(script));
+        assert_eq!(
+            fs::metadata(&staged.path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(staged.path.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert!(installer_command(&staged, "0".repeat(64).as_str()).is_err());
+        let command = installer_command(&staged, &staged.sha256).unwrap();
+        let argv: Vec<_> = command
+            .get_argv()
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(args, expected);
+        assert_eq!(
+            argv,
+            vec![
+                "/bin/bash".to_owned(),
+                staged.path.to_string_lossy().into_owned(),
+                "--skip-setup".to_owned()
+            ]
+        );
+        // Tampering after review is refused even with the reviewed hash.
+        fs::write(&staged.path, b"#!/bin/sh\necho evil\n").unwrap();
+        assert!(installer_command(&staged, &staged.sha256).is_err());
+        let dir = staged.path.parent().unwrap().to_owned();
+        drop(staged);
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn setup_command_is_fixed_and_env_is_scrubbed() {
+        assert!(setup_command(Path::new("/usr/bin/hermes"), "Bad Name").is_err());
+        let command = setup_command(Path::new("/opt/hermes bin/hermes"), "scout").unwrap();
+        let argv: Vec<_> = command
+            .get_argv()
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(argv, vec!["/opt/hermes bin/hermes", "-p", "scout", "setup"]);
+        assert_eq!(
+            command.get_env("TERM").map(|v| v.to_owned()),
+            Some("xterm-256color".into())
+        );
+        assert_eq!(command.get_env("OPENAI_API_KEY"), None);
+        assert_eq!(command.get_env("SHELLGUARDIAN_UNLISTED_TEST_VAR"), None);
+    }
+
+    #[test]
+    fn terminal_actions_deserialize_strictly() {
+        let install: HermesTerminalAction =
+            serde_json::from_str(r#"{"action":"install","sha256":"ab"}"#).unwrap();
+        assert!(matches!(install, HermesTerminalAction::Install { sha256 } if sha256 == "ab"));
+        let setup: HermesTerminalAction =
+            serde_json::from_str(r#"{"action":"setup","profile":"scout"}"#).unwrap();
+        assert!(matches!(setup, HermesTerminalAction::Setup { profile } if profile == "scout"));
+        assert!(serde_json::from_str::<HermesTerminalAction>(
+            r#"{"action":"run","program":"/bin/sh"}"#
+        )
+        .is_err());
     }
 
     #[test]
     fn env_allowlist_excludes_credentials() {
-        for name in HERMES_ENV_ALLOWLIST
-            .iter()
-            .chain(TERMINAL_ENV_ALLOWLIST.iter())
-        {
+        for name in HERMES_ENV_ALLOWLIST {
             let upper = name.to_ascii_uppercase();
             assert!(
                 !["KEY", "TOKEN", "SECRET", "PASSWORD"]
@@ -799,6 +1058,23 @@ mod tests {
         let (first, second) = tokio::join!(first, second);
         assert_eq!(first.unwrap().reply, "done");
         assert!(second.unwrap_err().contains("still answering"));
+    }
+
+    /// Downloads the real official installer and stages it, never running it.
+    /// Run with `cargo test -p shellguardian live_installer -- --ignored`.
+    #[tokio::test]
+    #[ignore = "network: downloads the official Hermes installer"]
+    async fn live_installer_download_is_valid_and_staged() {
+        let bytes = download_installer().await.unwrap();
+        let text = validate_installer(&bytes).unwrap();
+        assert!(
+            text.contains("--skip-setup"),
+            "installer no longer supports --skip-setup"
+        );
+        let staged = stage_installer(&bytes).unwrap();
+        assert_eq!(staged.sha256.len(), 64);
+        assert!(installer_command(&staged, &staged.sha256).is_ok());
+        println!("installer {} bytes sha256 {}", bytes.len(), staged.sha256);
     }
 
     /// Exercises discovery and creation against a real Hermes CLI named by

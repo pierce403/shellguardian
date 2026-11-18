@@ -29,11 +29,17 @@ focused milestones. Do not disturb existing agents to test the application.
   `PATH` entries only) with fixed arguments, null stdin, a timeout, and a cleared
   environment allowlist, so provider keys exported in the desktop session never
   reach Hermes's default provider. IPC accepts only a validated profile name, a
-  bounded chat message, and a validated session ID. Chat runs with
-  `HERMES_INTERACTIVE=1` so dangerous-command approval fails closed; never pass
-  `--yolo` or let Hermes's non-interactive auto-approval apply. Provider setup
-  runs `hermes -p <profile> setup` in `x-terminal-emulator`. Never install Hermes,
-  read its credentials, clone a profile, or replace an existing one.
+  bounded chat message, a validated session ID, or a fixed terminal action.
+  Chat runs with `HERMES_INTERACTIVE=1` so dangerous-command approval fails
+  closed; never pass `--yolo` or let Hermes's non-interactive auto-approval apply.
+  Never read Hermes credentials, clone a profile, or replace an existing one.
+- By the owner's decision (2026-11-18), ShellGuardian may install Hermes with its
+  official, unsigned `https://hermes-agent.nousresearch.com/install.sh`: download
+  over HTTPS without redirects, cap its size, stage it owner-only, show the user
+  its SHA-256 and text, and run `/bin/bash <script> --skip-setup` in an in-app PTY
+  only for that confirmed hash, re-hashed immediately before running. Provider
+  setup runs `hermes -p <profile> setup` in the same in-app PTY. Like sandbox
+  terminals, that output may contain secrets: show it, never log or persist it.
 - Reuse OpenShell's registered gateways and authentication. Scope each request
   explicitly to its gateway and workspace. Changing the UI selection must not
   change OpenShell's active gateway.

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { Bot, LoaderCircle, Terminal as TerminalIcon, X } from 'lucide-react';
+import { BrainCircuit, Bot, LoaderCircle, Terminal as TerminalIcon, X } from 'lucide-react';
 import * as api from './api';
-import type { AgentTerminalTarget } from './types';
+import type { TerminalTarget } from './types';
 import '@xterm/xterm/css/xterm.css';
 import './agent-terminal.css';
 
@@ -35,7 +35,7 @@ export default function AgentTerminal({
   target,
   onClose,
 }: {
-  target: AgentTerminalTarget;
+  target: TerminalTarget;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -46,8 +46,18 @@ export default function AgentTerminal({
   const [error, setError] = useState<string | null>(null);
   const [inputNotice, setInputNotice] = useState<string | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
-  const isAgent = target.kind === 'agent';
+  const hermes = 'hermes' in target ? target : null;
+  const sandbox = 'hermes' in target ? null : target;
+  const isAgent = sandbox?.kind === 'agent';
   const preview = api.previewMode;
+  const title = hermes
+    ? hermes.hermes === 'install'
+      ? 'Install Hermes'
+      : `Configure ${hermes.profile}`
+    : sandbox!.name;
+  const targetKey = hermes
+    ? `hermes:${hermes.hermes}:${hermes.hermes === 'install' ? hermes.sha256 : hermes.profile}`
+    : `sandbox:${sandbox!.scope.gateway}:${sandbox!.scope.workspace}:${sandbox!.scope.connectionId ?? ''}:${sandbox!.name}:${sandbox!.kind}`;
 
   useEffect(() => {
     const dialog = dialogRef.current!;
@@ -203,7 +213,7 @@ export default function AgentTerminal({
             result.data.length > 65536 ||
             result.data.some((value) => !Number.isInteger(value) || value < 0 || value > 255)
           )
-            throw new Error('OpenShell returned an invalid terminal output frame.');
+            throw new Error('The terminal returned an invalid output frame.');
           if (result.data.length) {
             await new Promise<void>((resolve) => {
               releaseRender = resolve;
@@ -237,7 +247,13 @@ export default function AgentTerminal({
     };
     // React's development remount must not launch a second real remote process.
     void Promise.resolve()
-      .then(() => (disposed ? null : api.openAgentTerminal(target, term.cols, term.rows)))
+      .then(() =>
+        disposed
+          ? null
+          : hermes
+            ? api.openHermesTerminal(hermes, term.cols, term.rows)
+            : api.openAgentTerminal(sandbox!, term.cols, term.rows),
+      )
       .then((session) => {
         if (!session) return;
         if (disposed) {
@@ -268,28 +284,30 @@ export default function AgentTerminal({
       term.dispose();
       if (sessionId) void closeNative(sessionId).catch(() => {});
     };
-  }, [
-    target.scope.gateway,
-    target.scope.workspace,
-    target.scope.connectionId,
-    target.name,
-    target.kind,
-    preview,
-  ]);
+    // targetKey captures every field of the target that selects a process.
+  }, [targetKey, preview]);
 
   return (
     <dialog
       ref={dialogRef}
       className="agent-terminal-dialog"
-      aria-label={`${isAgent ? 'Talk to agent' : 'Terminal'}: ${target.name}`}
+      aria-label={hermes ? title : `${isAgent ? 'Talk to agent' : 'Terminal'}: ${title}`}
       onCancel={(event) => event.preventDefault()}
     >
       <header className="agent-terminal-header">
         <div>
-          <div className="eyebrow">{isAgent ? 'AGENT SESSION' : 'SANDBOX TERMINAL'}</div>
+          <div className="eyebrow">
+            {hermes ? 'HERMES ON THIS COMPUTER' : isAgent ? 'AGENT SESSION' : 'SANDBOX TERMINAL'}
+          </div>
           <h2>
-            {isAgent ? <Bot size={24} /> : <TerminalIcon size={24} />}
-            {target.name}
+            {hermes ? (
+              <BrainCircuit size={24} />
+            ) : isAgent ? (
+              <Bot size={24} />
+            ) : (
+              <TerminalIcon size={24} />
+            )}
+            {title}
           </h2>
         </div>
         <button
@@ -311,21 +329,29 @@ export default function AgentTerminal({
           {isAgent ? 'Detach agent' : 'Close terminal'}
         </button>
       </header>
-      <div className="agent-terminal-context">
-        <span>
-          Gateway <strong>{target.scope.gateway}</strong>
-        </span>
-        <span>
-          Workspace <strong>{target.scope.workspace}</strong>
-        </span>
-        <span>
-          {target.scope.connectionId ? 'Via selected SSH connection' : 'Direct gateway connection'}
-        </span>
-      </div>
+      {sandbox && (
+        <div className="agent-terminal-context">
+          <span>
+            Gateway <strong>{sandbox.scope.gateway}</strong>
+          </span>
+          <span>
+            Workspace <strong>{sandbox.scope.workspace}</strong>
+          </span>
+          <span>
+            {sandbox.scope.connectionId
+              ? 'Via selected SSH connection'
+              : 'Direct gateway connection'}
+          </span>
+        </div>
+      )}
       <p className="agent-terminal-description">
-        {isAgent
-          ? 'Connect to the sandbox’s main process. If it is an interactive agent, talk to it here. Detach leaves that process running.'
-          : 'A new interactive shell inside this sandbox, not on your host. Commands can change sandbox files and processes.'}{' '}
+        {hermes?.hermes === 'install'
+          ? 'Runs Hermes’s official installer, the exact script you reviewed, on this computer. It may ask for your password to install a system library. Closing this window stops the installer.'
+          : hermes
+            ? `Runs Hermes’s own setup for ${hermes.profile} on this computer. Keys you enter go to Hermes, which stores them in that profile; ShellGuardian never saves or reads them.`
+            : isAgent
+              ? 'Connect to the sandbox’s main process. If it is an interactive agent, talk to it here. Detach leaves that process running.'
+              : 'A new interactive shell inside this sandbox, not on your host. Commands can change sandbox files and processes.'}{' '}
         Input goes directly to the session, including Ctrl+C. Output stays in memory and may contain
         sensitive information.
       </p>
@@ -335,8 +361,9 @@ export default function AgentTerminal({
           <h3>Interactive session preview</h3>
           <p>This sample is not connected. No process is attached and no commands can run.</p>
           <p>
-            Use the desktop app with a running OpenShell sandbox to{' '}
-            {isAgent ? 'talk to its agent' : 'open a terminal'}.
+            {hermes
+              ? 'Use the desktop app to run Hermes installation and setup.'
+              : `Use the desktop app with a running OpenShell sandbox to ${isAgent ? 'talk to its agent' : 'open a terminal'}.`}
           </p>
         </div>
       ) : (
@@ -345,11 +372,13 @@ export default function AgentTerminal({
             {phase === 'opening' && (
               <>
                 <LoaderCircle size={15} className="spin" />
-                Connecting to OpenShell…
+                {hermes ? 'Starting…' : 'Connecting to OpenShell…'}
               </>
             )}
             {phase === 'connected' &&
-              'Terminal open. Wait for the agent or shell prompt before typing.'}
+              (hermes
+                ? 'Terminal open. Answer prompts here when they appear.'
+                : 'Terminal open. Wait for the agent or shell prompt before typing.')}
             {phase === 'exited' &&
               `Session ended${exitCode === null ? '.' : ` with exit code ${exitCode}.`}`}
             {phase === 'error' && 'Session unavailable. Close this window before trying again.'}

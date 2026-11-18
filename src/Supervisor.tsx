@@ -8,7 +8,9 @@ import {
 } from 'react';
 import {
   BrainCircuit,
+  Download,
   ExternalLink,
+  ShieldAlert,
   LoaderCircle,
   MessageSquarePlus,
   RefreshCw,
@@ -17,7 +19,13 @@ import {
   UserPlus,
 } from 'lucide-react';
 import * as api from './api';
-import type { HermesDiscovery, HermesProfile } from './types';
+import AgentTerminal from './AgentTerminal';
+import type {
+  HermesDiscovery,
+  HermesProfile,
+  HermesTerminalTarget,
+  InstallerPreview,
+} from './types';
 
 const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const DEFAULT_SUPERVISOR = 'guanyu';
@@ -180,6 +188,10 @@ export default function Supervisor({
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [terminal, setTerminal] = useState<HermesTerminalTarget | null>(null);
+  const [installer, setInstaller] = useState<InstallerPreview | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement>(null);
   const { discovery, supervisor, conversation } = hermes;
   const messages = conversation?.messages ?? [];
@@ -190,17 +202,27 @@ export default function Supervisor({
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
   }, [messages.length, hermes.sending]);
 
-  async function configure(profile: string) {
+  function configure(profile: string) {
+    setTerminal({ hermes: 'setup', profile });
+  }
+
+  async function downloadInstaller() {
+    setInstallError(null);
+    setDownloading(true);
     try {
-      await api.startHermesSetup(profile);
-      onToast(
-        api.previewMode
-          ? 'Sample preview only. No terminal was opened.'
-          : `Hermes setup for ${profile} opened in a separate terminal. Refresh when finished.`,
-      );
+      setInstaller(await api.prepareHermesInstaller());
     } catch (e) {
-      onToast(api.errorMessage(e));
+      setInstallError(api.errorMessage(e));
+    } finally {
+      setDownloading(false);
     }
+  }
+
+  function closeTerminal() {
+    const finished = terminal;
+    setTerminal(null);
+    if (finished?.hermes === 'install') setInstaller(null);
+    void hermes.refresh();
   }
 
   async function create(event: FormEvent) {
@@ -288,12 +310,64 @@ export default function Supervisor({
             </div>
           </div>
           <p className="muted-copy">
-            Install Hermes using its official guide, then select Refresh. ShellGuardian then creates
-            a separate GuanYu profile for you. It never downloads or runs an install script itself.
+            ShellGuardian can download Hermes's official installer, show it to you, and run it here
+            once you approve. It installs into your home folder (~/.hermes and ~/.local/bin) and may
+            ask for your password to add one system library. Then create a supervisor agent and
+            configure its provider.
           </p>
+          {installer && (
+            <section className="installer-review" aria-label="Installer review">
+              <div className="installer-warning">
+                <ShieldAlert size={18} />
+                <p>
+                  This script comes from Hermes's website and is not signed. ShellGuardian will run
+                  only this exact file. Review it if you are unsure.
+                </p>
+              </div>
+              <div className="settings-row">
+                <span>Source</span>
+                <code>{installer.url}</code>
+              </div>
+              <div className="settings-row">
+                <span>SHA-256</span>
+                <code>{installer.sha256}</code>
+              </div>
+              <div className="settings-row">
+                <span>Size</span>
+                <strong>{installer.size.toLocaleString()} bytes</strong>
+              </div>
+              <details className="hermes-profiles">
+                <summary>Read the installer script</summary>
+                <pre>{installer.script}</pre>
+              </details>
+            </section>
+          )}
+          {installError && (
+            <p className="form-error" role="alert">
+              {installError}
+            </p>
+          )}
           <div className="settings-buttons">
+            {installer ? (
+              <button
+                className="button primary"
+                onClick={() => setTerminal({ hermes: 'install', sha256: installer.sha256 })}
+              >
+                <TerminalSquare size={16} />
+                Run installer
+              </button>
+            ) : (
+              <button
+                className="button primary"
+                disabled={downloading}
+                onClick={() => void downloadInstaller()}
+              >
+                {downloading ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
+                Download installer
+              </button>
+            )}
             <button
-              className="button primary"
+              className="button"
               onClick={() => {
                 void api.openHermesInstallGuide().catch((e) => onToast(api.errorMessage(e)));
               }}
@@ -351,8 +425,8 @@ export default function Supervisor({
           {unconfigured && (
             <div className="supervisor-notice" role="status">
               <p>
-                {supervisor.name} has no model provider yet. Set one up in Hermes's own terminal so
-                API keys never pass through ShellGuardian.
+                {supervisor.name} has no model provider yet. Configure runs Hermes's own setup here;
+                Hermes stores any key you enter, and ShellGuardian never saves or reads it.
               </p>
               <button className="button primary" onClick={() => void configure(supervisor.name)}>
                 <TerminalSquare size={16} />
@@ -511,6 +585,7 @@ export default function Supervisor({
           Checking for Hermes…
         </p>
       )}
+      {terminal && <AgentTerminal target={terminal} onClose={closeTerminal} />}
     </div>
   );
 }

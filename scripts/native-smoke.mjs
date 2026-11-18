@@ -110,6 +110,32 @@ try {
       `test-results/native-supervisor-${expectHermes}.png`,
       Buffer.from(shot, 'base64'),
     );
+    if (expectHermes === 'detected') {
+      // Open the real in-app setup terminal for the isolated wrapper's
+      // default profile, confirm Hermes renders, then close it (killing it).
+      await execute(
+        `Array.from(document.querySelectorAll('[aria-label="Hermes agents"] button')).find(button => button.textContent.trim() === 'Configure').click(); return true;`,
+      );
+      const output = await until(
+        `return document.querySelector('dialog[aria-label="Configure default"] .xterm-rows')?.innerText ?? ''`,
+        (value) => /hermes|setup|provider|model/i.test(value),
+        'Hermes setup output in the in-app terminal',
+      );
+      assert.ok(output.length > 0);
+      const terminalShot = await request(`/session/${session}/screenshot`);
+      await writeFile(
+        'test-results/native-hermes-setup-terminal.png',
+        Buffer.from(terminalShot, 'base64'),
+      );
+      await execute(
+        `Array.from(document.querySelectorAll('dialog[aria-label="Configure default"] button')).find(button => button.textContent.includes('Close terminal')).click(); return true;`,
+      );
+      await until(
+        `return document.querySelector('dialog[aria-label="Configure default"]') === null`,
+        Boolean,
+        'setup terminal closed',
+      );
+    }
     hermes = foot;
   }
   console.log(

@@ -126,6 +126,15 @@ export interface AgentTerminalTarget {
   name: string;
   kind: TerminalKind;
 }
+export type HermesTerminalTarget =
+  { hermes: 'install'; sha256: string } | { hermes: 'setup'; profile: string };
+export type TerminalTarget = AgentTerminalTarget | HermesTerminalTarget;
+export interface InstallerPreview {
+  url: string;
+  sha256: string;
+  size: number;
+  script: string;
+}
 export interface AgentTerminalSession {
   id: string;
   kind: TerminalKind;

@@ -178,7 +178,10 @@ test('sample supervisor chats, creates agents, and stays simulated', async ({ pa
   await expect(chat.getByText('scout has no model provider yet.', { exact: false })).toBeVisible();
   await expect(chat.getByLabel('Message scout')).toBeDisabled();
   await chat.getByRole('button', { name: 'Configure scout' }).click();
-  await expect(page.getByText('Sample preview only. No terminal was opened.')).toBeVisible();
+  const setup = page.getByRole('dialog', { name: 'Configure scout' });
+  await expect(setup.getByText('This sample is not connected.', { exact: false })).toBeVisible();
+  await setup.getByRole('button', { name: 'Close terminal' }).click();
+  await expect(setup).toHaveCount(0);
 
   await chat.getByLabel('Supervisor agent').selectOption('guanyu');
   await expect(chat.getByText('How are my agents?')).toBeVisible();
@@ -264,6 +267,96 @@ test('desktop supervisor reports Hermes errors without inventing replies', async
     'hermes_chat:{"profile":"guanyu","message":"status?","sessionId":null}',
     'hermes_chat:{"profile":"guanyu","message":"again","sessionId":"s_1"}',
   ]);
+});
+
+test('desktop install runs only the reviewed installer hash in an in-app terminal', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const calls: string[] = [];
+    let installed = false;
+    let reads = 0;
+    Object.defineProperty(window, '__calls', { value: calls });
+    Object.defineProperty(window, 'isTauri', { value: true });
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      value: {
+        invoke: async (command: string, args: Record<string, unknown>) => {
+          calls.push(command + ':' + JSON.stringify(args ?? {}));
+          if (command === 'discover_hermes')
+            return installed
+              ? {
+                  installed: true,
+                  installation: '/home/u/.local/bin/hermes',
+                  profiles: [{ name: 'default', model: null, gateway: 'stopped', active: true }],
+                  profileText: '',
+                }
+              : { installed: false, installation: null, profiles: [], profileText: '' };
+          if (command === 'prepare_hermes_installer')
+            return {
+              url: 'https://hermes-agent.nousresearch.com/install.sh',
+              sha256: 'a'.repeat(64),
+              size: 1234,
+              script: '#!/bin/bash\necho installing\n',
+            };
+          if (command === 'open_hermes_terminal') return { id: 'terminal-1', kind: 'terminal' };
+          if (command === 'resize_agent_terminal') return null;
+          if (command === 'read_agent_terminal') {
+            reads += 1;
+            if (reads === 1)
+              return {
+                data: Array.from(new TextEncoder().encode('Hermes installed\r\n')),
+                exited: false,
+                exitCode: null,
+                error: null,
+              };
+            installed = true;
+            return { data: [], exited: true, exitCode: 0, error: null };
+          }
+          if (command === 'close_agent_terminal') return null;
+          if (command === 'get_snapshot') throw 'offline';
+          if (command === 'get_shellguardian_update')
+            return {
+              appVersion: '0',
+              enabled: true,
+              supported: false,
+              phase: 'unsupported',
+              latestVersion: null,
+              error: null,
+            };
+          throw new Error('Unsupported test command');
+        },
+      },
+    });
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Hermes supervisor: Not detected' })).toBeVisible();
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  const card = page.getByRole('region', { name: 'Install Hermes' });
+  await expect(card.getByRole('button', { name: 'Run installer' })).toHaveCount(0);
+  await card.getByRole('button', { name: 'Download installer' }).click();
+  const review = card.getByRole('region', { name: 'Installer review' });
+  await expect(review).toContainText('a'.repeat(64));
+  await expect(review).toContainText('is not signed');
+  await review.getByText('Read the installer script').click();
+  await expect(review.getByText('echo installing')).toBeVisible();
+  await card.getByRole('button', { name: 'Run installer' }).click();
+  const terminal = page.getByRole('dialog', { name: 'Install Hermes' });
+  await expect(terminal.getByText('Session ended with exit code 0.')).toBeVisible();
+  await terminal.getByRole('button', { name: 'Close terminal' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Hermes supervisor: Gateway stopped' }),
+  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Hermes agents' })).toContainText('default');
+  const opens = await page.evaluate(() =>
+    (window as unknown as { __calls: string[] }).__calls.filter((c) =>
+      c.startsWith('open_hermes_terminal'),
+    ),
+  );
+  expect(opens).toHaveLength(1);
+  expect(JSON.parse(opens[0].slice('open_hermes_terminal:'.length)).action).toEqual({
+    action: 'install',
+    sha256: 'a'.repeat(64),
+  });
 });
 
 test('small-screen layout stays within the viewport', async ({ page }) => {

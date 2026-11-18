@@ -240,9 +240,10 @@ Test Criteria:
 ## Hermes supervisor
 
 - **Stability**: initial implementation, native acceptance of chat pending
-- **Description**: A Supervisor page, below Overview, that talks to a local Hermes
-  agent, guides installation when Hermes is absent, creates new Hermes agents
-  (profiles), and opens Hermes's own setup for providers. The sidebar shows the
+- **Description**: A Supervisor page, below Overview, that installs Hermes with its
+  official installer after the user reviews it, talks to a local Hermes agent,
+  creates new Hermes agents (profiles), and runs Hermes's own provider setup in an
+  in-app terminal. The sidebar shows the
   supervisor profile's Hermes gateway state beside OpenShell's.
 - **Properties**:
   - Discover profiles read-only from `hermes profile list`, every 60 seconds and on demand.
@@ -251,8 +252,11 @@ Test Criteria:
     bounded in size and time. Conversations live in memory only.
   - Dangerous commands fail closed (`HERMES_INTERACTIVE=1`, no stdin), never auto-approved.
   - Hermes children never inherit provider keys from the desktop environment.
-  - Provider setup runs in the user's terminal; credentials never enter the webview.
-  - Do not download or run installers. Remote host support is not implemented.
+  - Installation downloads the official script over HTTPS, shows its SHA-256 and text,
+    and runs only that exact file, re-hashed, in an in-app terminal with `--skip-setup`.
+  - Provider setup is Hermes's own wizard in an in-app terminal. Its output is shown,
+    never logged or persisted; ShellGuardian never reads stored keys.
+  - Remote host support is not implemented.
 - **Test criteria**:
   - [x] Rust tests: name/session validation, profile-table parsing, error and
     reply bounding, flag-safe arguments, environment allowlist, fail-closed
@@ -263,6 +267,12 @@ Test Criteria:
     unconfigured gating, session resume IDs, error display, sidebar status (2026-11-18).
   - [x] Native WebKit against the live gateway: sidebar status and Supervisor page
     for absent and detected Hermes (2026-11-18).
+  - [x] Live download of the official installer (68,015 bytes, staged owner-only,
+    hash-bound); the script still supports `--skip-setup`. Not run (2026-11-18).
+  - [x] Chromium: install review, hash-bound run, terminal exit, and refresh (2026-11-18).
+  - [x] Native WebKit: Hermes's real setup wizard renders in the in-app terminal for an
+    isolated profile and closes cleanly (2026-11-18).
+  - [ ] Run the official installer end to end on a clean account.
   - [ ] Live chat with a configured disposable profile and known test credentials.
   - [ ] Confirm a dangerous command is denied in a live chat turn.
   - [ ] Complete the setup wizard by hand; confirm no credential reaches the webview.

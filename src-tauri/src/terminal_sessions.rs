@@ -1,7 +1,8 @@
-//! In-memory, window-owned PTYs for the bridge's two fixed OpenShell interactions.
+//! In-memory, window-owned PTYs for the bridge's two fixed OpenShell interactions
+//! and the Hermes supervisor's fixed local commands.
 //!
-//! The webview supplies a sandbox and an interaction kind, never a command, local
-//! path, environment, or gateway endpoint. A single nonblocking worker per PTY
+//! The webview supplies a sandbox and an interaction kind, or a Hermes action,
+//! never a command, local path, environment, or gateway endpoint. A single nonblocking worker per PTY
 //! bounds memory and makes close independent of a stalled reader or writer.
 
 use crate::app_updates::AppUpdates;
@@ -212,7 +213,7 @@ fn window_owner(label: &str) -> Result<()> {
     Ok(())
 }
 
-fn dimensions(cols: u16, rows: u16) -> Result<PtySize> {
+pub(crate) fn dimensions(cols: u16, rows: u16) -> Result<PtySize> {
     if !(2..=500).contains(&cols) || !(1..=300).contains(&rows) {
         return Err(Error::new(
             "Terminal size must be 2–500 columns and 1–300 rows.",
@@ -296,8 +297,50 @@ impl TerminalSessions {
             kind,
             size,
             command,
-            Lease::OpenShell(launch),
+            Some(Lease::OpenShell(launch)),
             Some(slot),
+            "Could not start OpenShell. Check that its CLI is installed and executable.",
+        )?;
+        let id = format!("terminal-{}", NEXT_SESSION.fetch_add(1, Ordering::Relaxed));
+        registry.sessions.insert(id.clone(), session);
+        Ok(TerminalSession { id, kind })
+    }
+
+    /// Opens a PTY for a local command that native code built from a fixed
+    /// program and validated arguments. It has no transport lease, and close
+    /// kills its process group like a sandbox shell.
+    pub(crate) async fn open_local(
+        &self,
+        owner: &str,
+        command: CommandBuilder,
+        size: PtySize,
+        start_error: &'static str,
+    ) -> Result<TerminalSession> {
+        window_owner(owner)?;
+        let mut registry = self.registry.lock().await;
+        if registry.shutting_down {
+            return Err(Error::new("ShellGuardian is closing."));
+        }
+        if registry.sessions.len() >= MAX_SESSIONS {
+            return Err(Error::new(
+                "Close an existing terminal before opening another (maximum eight).",
+            ));
+        }
+        let slot = self
+            .slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::new("A terminal is still closing. Try again shortly."))?;
+        let kind = InteractionKind::Terminal;
+        let session = spawn_session(
+            owner,
+            None,
+            kind,
+            size,
+            command,
+            None,
+            Some(slot),
+            start_error,
         )?;
         let id = format!("terminal-{}", NEXT_SESSION.fetch_add(1, Ordering::Relaxed));
         registry.sessions.insert(id.clone(), session);
@@ -405,14 +448,16 @@ async fn close_sessions(sessions: Vec<Arc<Session>>) {
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
 fn spawn_session(
     owner: &str,
     connection_id: Option<String>,
     kind: InteractionKind,
     size: PtySize,
     command: CommandBuilder,
-    lease: Lease,
+    lease: Option<Lease>,
     slot: Option<tokio::sync::OwnedSemaphorePermit>,
+    start_error: &'static str,
 ) -> Result<Arc<Session>> {
     let pair = portable_pty::native_pty_system()
         .openpty(size)
@@ -425,9 +470,10 @@ fn spawn_session(
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err(Error::new("Could not configure nonblocking terminal I/O."));
     }
-    let child = pair.slave.spawn_command(command).map_err(|_| {
-        Error::new("Could not start OpenShell. Check that its CLI is installed and executable.")
-    })?;
+    let child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|_| Error::new(start_error))?;
     drop(pair.slave);
     let process = OwnedProcess {
         child,
@@ -438,7 +484,7 @@ fn spawn_session(
         owner: owner.to_owned(),
         connection_id,
         buffers: Arc::new(Mutex::new(Buffers::default())),
-        lease: Arc::new(Mutex::new(Some(lease))),
+        lease: Arc::new(Mutex::new(lease)),
         worker: Mutex::new(None),
     });
     let buffers = session.buffers.clone();
@@ -455,14 +501,16 @@ fn spawn_session(
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(clippy::too_many_arguments)]
 fn spawn_session(
     _owner: &str,
     _connection_id: Option<String>,
     _kind: InteractionKind,
     _size: PtySize,
     _command: CommandBuilder,
-    _lease: Lease,
+    _lease: Option<Lease>,
     _slot: Option<tokio::sync::OwnedSemaphorePermit>,
+    _start_error: &'static str,
 ) -> Result<Arc<Session>> {
     Err(Error::new(
         "Interactive terminals are currently supported on Linux.",
@@ -937,8 +985,9 @@ mod tests {
             kind,
             dimensions(80, 24).unwrap(),
             command,
-            Lease::Fixture(alive.clone()),
+            Some(Lease::Fixture(alive.clone())),
             None,
+            "fixture start failed",
         )
         .unwrap();
         (session, alive)
@@ -1076,8 +1125,11 @@ mod tests {
             kind,
             dimensions(80, 24).unwrap(),
             command,
-            Lease::Fixture(Arc::new(std::sync::atomic::AtomicBool::new(true))),
+            Some(Lease::Fixture(Arc::new(
+                std::sync::atomic::AtomicBool::new(true),
+            ))),
             None,
+            "fixture start failed",
         )
         .unwrap();
         wait_for(&session, |state| {
@@ -1151,8 +1203,11 @@ mod tests {
             InteractionKind::Agent,
             dimensions(80, 24).unwrap(),
             CommandBuilder::new("/usr/bin/cat"),
-            Lease::Fixture(Arc::new(std::sync::atomic::AtomicBool::new(true))),
+            Some(Lease::Fixture(Arc::new(
+                std::sync::atomic::AtomicBool::new(true),
+            ))),
             Some(slot),
+            "fixture start failed",
         )
         .unwrap();
         terminals
