@@ -1207,10 +1207,19 @@ h1 {
 .settings-row {
   display: flex;
   justify-content: space-between;
+  gap: 16px;
   padding: 10px 0;
   font-size: 12px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
+}
+.settings-row code {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--secondary);
 }
 .settings-row strong {
   color: var(--secondary);

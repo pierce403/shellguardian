@@ -252,7 +252,12 @@ Test Criteria:
     output sanitization, and fixed terminal arguments (2026-11-18).
   - [x] Chromium preview and browser-mode tests: confirmation gate, simulated
     setup, and no probing outside the desktop app (2026-11-18).
-  - [ ] Native WebKit UI smoke test.
-  - [ ] Verify profile discovery against an existing Hermes install and a clean install.
-  - [ ] Confirm terminal setup behavior with a disposable profile; verify credentials never enter the webview.
+  - [x] Native WebKit smoke test, against the live gateway, of both the absent and the
+    detected states (isolated Hermes 0.16.0 wrapper on `PATH`) (2026-11-18).
+  - [x] Live Hermes 0.16.0 in a temporary `HOME`/`HERMES_HOME`: clean discovery,
+    creation without `.env` or alias wrapper, then refusal to recreate (2026-11-18).
+  - [x] `hermes -p guanyu setup` parses for a disposable profile, and the Debian
+    `x-terminal-emulator` (Terminator) passes everything after `-e` to it (2026-11-18).
+  - [ ] Complete the interactive setup wizard by hand in a disposable profile and
+    confirm no credential reaches the webview.
   - [ ] SSH-only remote discovery/onboarding using strict host-key verification.

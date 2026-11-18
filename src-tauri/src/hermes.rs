@@ -116,7 +116,11 @@ async fn profile_exists(binary: &Path) -> Result<bool, String> {
 /// already exists. Read-only.
 #[tauri::command]
 pub async fn discover_hermes() -> Result<HermesDiscovery, String> {
-    let Some(binary) = hermes_path() else {
+    discover_with(hermes_path()).await
+}
+
+async fn discover_with(binary: Option<PathBuf>) -> Result<HermesDiscovery, String> {
+    let Some(binary) = binary else {
         return Ok(HermesDiscovery {
             installed: false,
             profile_exists: false,
@@ -143,10 +147,14 @@ pub async fn discover_hermes() -> Result<HermesDiscovery, String> {
 #[tauri::command]
 pub async fn create_guanyu_profile() -> Result<(), String> {
     let binary = hermes_path().ok_or("Hermes is not installed on this machine.")?;
-    if profile_exists(&binary).await? {
+    create_with(&binary).await
+}
+
+async fn create_with(binary: &Path) -> Result<(), String> {
+    if profile_exists(binary).await? {
         return Err("The GuanYu profile already exists. Refresh instead.".into());
     }
-    let output = run_hermes(&binary, &["profile", "create", PROFILE, "--no-alias"]).await?;
+    let output = run_hermes(binary, &["profile", "create", PROFILE, "--no-alias"]).await?;
     if !output.status.success() {
         return Err("Hermes could not create GuanYu. No existing profile was replaced.".into());
     }
@@ -291,5 +299,62 @@ mod tests {
             .map(OsString::from)
             .collect();
         assert_eq!(args, expected);
+    }
+
+    /// Exercises discovery and creation against a real Hermes CLI named by
+    /// `SHELLGUARDIAN_TEST_HERMES`, isolated in a temporary `HOME` and
+    /// `HERMES_HOME`. Run with `cargo test -p shellguardian -- --ignored`.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "requires SHELLGUARDIAN_TEST_HERMES"]
+    async fn live_hermes_discovery_and_creation_are_isolated() {
+        let real = std::env::var("SHELLGUARDIAN_TEST_HERMES")
+            .expect("set SHELLGUARDIAN_TEST_HERMES to a Hermes executable");
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let hermes_home = dir.path().join("hermes-home");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&hermes_home).unwrap();
+        let wrapper = dir.path().join("bin/hermes");
+        fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+        fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\nHOME='{}' HERMES_HOME='{}' exec '{}' \"$@\"\n",
+                home.display(),
+                hermes_home.display(),
+                real
+            ),
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+
+        let before = discover_with(Some(wrapper.clone())).await.unwrap();
+        assert!(before.installed);
+        assert!(!before.profile_exists, "fresh home already had guanyu");
+        assert!(!before.profiles.contains('\u{1b}'));
+
+        create_with(&wrapper).await.unwrap();
+        let after = discover_with(Some(wrapper.clone())).await.unwrap();
+        assert!(after.profile_exists);
+        assert!(after.profiles.contains("guanyu"));
+        assert!(hermes_home.join("profiles/guanyu").is_dir());
+        assert!(!hermes_home.join("profiles/guanyu/.env").exists());
+        assert!(
+            !home.join(".local/bin/guanyu").exists(),
+            "--no-alias wrote a wrapper"
+        );
+
+        let again = create_with(&wrapper).await.unwrap_err();
+        assert!(again.contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn discovery_without_hermes_reports_not_installed() {
+        let found = discover_with(None).await.unwrap();
+        assert!(!found.installed && !found.profile_exists && found.installation.is_none());
     }
 }

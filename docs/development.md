@@ -71,6 +71,14 @@ node scripts/native-smoke.mjs target/debug/shellguardian
 The smoke test verifies real IPC, installed CLI version, local gateway data,
 the official release check, and empty local/session storage. It captures native
 screenshots and closes its application session. It performs no agent mutation.
+Set `GDK_BACKEND=x11` and unset `WAYLAND_DISPLAY` for the driver. Otherwise, inside a
+Wayland desktop session, the app opens on the real desktop instead of Xvfb and the
+WebDriver session times out.
+Set `SHELLGUARDIAN_SMOKE_HERMES=absent` or `detected` to also check the Hermes card.
+For `detected`, put on the driver's `PATH` a `hermes` wrapper that runs a real Hermes
+with temporary `HOME` and `HERMES_HOME`, never the user's profiles. The isolated
+creation test is `SHELLGUARDIAN_TEST_HERMES=/path/to/hermes cargo test -p shellguardian
+live_hermes -- --ignored`.
 Supply `--native-driver PATH` when WebKitWebDriver is not on PATH. On this Ubuntu
 version its package is `webkitgtk-webdriver`, replacing the older package name.
 

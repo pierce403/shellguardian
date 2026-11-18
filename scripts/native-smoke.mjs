@@ -7,6 +7,12 @@ import { execFileSync } from 'node:child_process';
 
 const endpoint = 'http://127.0.0.1:4544';
 const application = resolve(process.argv[2] ?? 'target/debug/shellguardian');
+// Optional read-only Hermes card check: 'absent' or 'detected'. For 'detected',
+// put an isolated Hermes wrapper on the driver's PATH; never a real profile.
+const expectHermes = process.env.SHELLGUARDIAN_SMOKE_HERMES;
+if (expectHermes && !['absent', 'detected'].includes(expectHermes)) {
+  throw new Error('SHELLGUARDIAN_SMOKE_HERMES must be absent or detected');
+}
 let session;
 
 async function request(path, method = 'GET', body) {
@@ -72,6 +78,26 @@ try {
     'official native update check',
   );
   assert.ok(settings.includes(expectedVersion));
+  let hermes = null;
+  if (expectHermes) {
+    const card = `return document.querySelector('[aria-label="Hermes onboarding"]')?.innerText ?? ''`;
+    hermes = await until(
+      card,
+      (value) =>
+        expectHermes === 'detected'
+          ? value.includes('Detected') && value.includes('GuanYu profile')
+          : value.includes('Not detected') && value.includes('Installation guide'),
+      `native Hermes card reports ${expectHermes}`,
+    );
+    assert.ok(!hermes.includes('Sample preview'));
+    assert.ok(!hermes.includes('Unsupported'));
+    await execute(
+      `document.querySelector('[aria-label="Hermes onboarding"]').scrollIntoView({ block: 'start' }); return true;`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const shot = await request(`/session/${session}/screenshot`);
+    await writeFile(`test-results/native-hermes-${expectHermes}.png`, Buffer.from(shot, 'base64'));
+  }
   const screenshot = await request(`/session/${session}/screenshot`);
   await writeFile('test-results/native-settings.png', Buffer.from(screenshot, 'base64'));
   console.log(
@@ -81,6 +107,7 @@ try {
         installedVersion: expectedVersion,
         gatewayConnected: true,
         releaseChecked: true,
+        hermes: expectHermes ?? 'not checked',
         storageEntries: 0,
         mutationsPerformed: false,
       },

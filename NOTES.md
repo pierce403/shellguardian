@@ -573,3 +573,29 @@ and all 35 Playwright tests with
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`
 (the default headless shell revision 1243 is not downloaded here). Not verified:
 native WebKit UI, a real Hermes install, or the terminal setup flow.
+
+## 2026-11-18: Hermes live and native acceptance
+
+There is no system Hermes install. `~/fun/derpy/bin/hermes` is a project wrapper for
+hermes-agent 0.16.0 that respects `HERMES_HOME`. Reading the 0.16.0 source showed
+that profiles live under `HERMES_HOME/profiles` when `HERMES_HOME` is outside
+`~/.hermes`, that alias wrappers go to `$HOME/.local/bin`, that `profile show`
+exits 1 for a missing profile, and that `profile create` without `--clone` copies
+no `.env`. Tests therefore use both a temporary `HOME` and a temporary `HERMES_HOME`.
+Afterwards, `~/.hermes`, derpy's `.hermes`, and `~/.local/bin` had no new profiles
+or wrappers.
+
+Terminator, the Debian `x-terminal-emulator` here, normally has its own `-p`
+profile flag. When started under the alternative's name, its `-e` takes the rest
+of argv, so `-e hermes -p guanyu setup` reaches Hermes intact.
+
+Native smoke: the first runs timed out because GTK picked the user's Wayland
+session over Xvfb. With `GDK_BACKEND=x11`, both the absent and detected Hermes
+states passed against the live `openshell` gateway (0.1.2, authenticated), with
+zero storage entries and no mutation. The detected screenshot revealed the
+Executable row's path abutting its label, fixed with a row gap and a wrapping,
+right-aligned `code` style. Evidence: `test-results/native-hermes-*.png`.
+The live release check reported OpenShell 0.1.9 available; nothing was upgraded.
+
+Remaining gate: complete the interactive setup wizard by hand in a disposable profile.
+
