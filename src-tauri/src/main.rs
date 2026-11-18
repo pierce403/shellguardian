@@ -5,9 +5,9 @@ use openshell_bridge::{model::*, process::ProcessRunner, Bridge, Error};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 mod app_updates;
-mod hermes;
 #[cfg(target_os = "linux")]
 mod desktop_integration;
+mod hermes;
 mod preferences;
 mod ssh_connections;
 mod terminal_sessions;
@@ -141,6 +141,7 @@ fn main() {
             hermes::discover_hermes,
             hermes::create_guanyu_profile,
             hermes::start_guanyu_onboarding,
+            hermes::open_hermes_install_guide,
             get_agent_detail,
             get_agent_logs,
             change_agent_state,

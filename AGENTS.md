@@ -24,6 +24,12 @@ focused milestones. Do not disturb existing agents to test the application.
   the sandbox main process or start a fixed `/bin/sh -i` inside that sandbox
   through OpenShell. Their typed IPC accepts only scope, name, mode, dimensions,
   and input for an already-owned PTY; never a host program, path, or environment.
+- Hermes onboarding is the one non-OpenShell exception: it may run the installed
+  `hermes` executable (per-user `~/.local/bin` first, then absolute `PATH`
+  entries only) with fixed arguments, null stdin, and a timeout, and may open
+  `hermes -p guanyu setup` in `x-terminal-emulator` so provider credentials stay
+  in the user's terminal. It never installs Hermes, reads its credentials, or
+  replaces an existing profile, and its IPC takes no arguments.
 - Reuse OpenShell's registered gateways and authentication. Scope each request
   explicitly to its gateway and workspace. Changing the UI selection must not
   change OpenShell's active gateway.

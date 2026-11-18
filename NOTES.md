@@ -552,3 +552,24 @@ ownership label, deleted only `sg-term-1006-a`, and confirmed the local gateway
 inventory was empty again. Removed its temporary CLI metadata symlink and empty
 directories without following the symlink or changing credentials. No user data,
 existing agents, providers, or paid inference were involved.
+
+## 2026-11-18: Hermes onboarding cleanup
+
+The first Hermes slice (`d77a057`..`218a5d1`) failed Prettier and rustfmt, had no
+Rust tests, and broke `tests/ssh.spec.ts`: its mocked `invoke` rejected the new
+`discover_hermes` call, producing a second `role="alert"`. Mocks now answer it.
+
+Hardening: Hermes resolution ignores relative `HOME`/`PATH` entries and
+non-executable files; CLI calls get null stdin and a 20 second timeout; profile
+text is stripped of control characters before display; the setup terminal is
+reaped in the background; the install guide opens through a fixed native URL
+instead of a webview link. The card now lives inside the settings layout and
+uses `api.ts` with an explicit sample-preview fixture. `tokio`'s `process`
+feature is declared instead of relying on a transitive dependency.
+
+Verified: `cargo fmt --check`, Clippy `-D warnings`, `cargo test -p shellguardian`
+(44 passed) and `-p openshell-bridge`, `npm run build`, `npm run format:check`,
+and all 35 Playwright tests with
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`
+(the default headless shell revision 1243 is not downloaded here). Not verified:
+native WebKit UI, a real Hermes install, or the terminal setup flow.

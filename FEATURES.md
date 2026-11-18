@@ -248,7 +248,11 @@ Test Criteria:
   - Do not automatically download or execute installation scripts, request sudo, or persist credentials.
   - This first slice is local-only. Remote host detection and SSH-routed onboarding are planned but not implemented.
 - **Test criteria**:
-  - [ ] Native Linux compile, unit tests and UI smoke test.
+  - [x] Native Linux compile, Clippy, and unit tests for executable resolution,
+    output sanitization, and fixed terminal arguments (2026-11-18).
+  - [x] Chromium preview and browser-mode tests: confirmation gate, simulated
+    setup, and no probing outside the desktop app (2026-11-18).
+  - [ ] Native WebKit UI smoke test.
   - [ ] Verify profile discovery against an existing Hermes install and a clean install.
   - [ ] Confirm terminal setup behavior with a disposable profile; verify credentials never enter the webview.
   - [ ] SSH-only remote discovery/onboarding using strict host-key verification.

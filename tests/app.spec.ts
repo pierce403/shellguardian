@@ -146,6 +146,31 @@ test('update check is explicit and sample result is not presented as live', asyn
   ).toBeVisible();
 });
 
+test('sample Hermes onboarding requires confirmation and stays simulated', async ({ page }) => {
+  await page.goto('/?preview=1');
+  await page.getByRole('button', { name: 'OpenShell & settings', exact: true }).click();
+  const card = page.getByRole('region', { name: 'Hermes onboarding' });
+  await expect(
+    card.getByText('Sample preview only. This is not a live Hermes installation.'),
+  ).toBeVisible();
+  await expect(card.getByText('Not configured')).toBeVisible();
+  const create = card.getByRole('button', { name: 'Create GuanYu' });
+  await expect(create).toBeDisabled();
+  await card.getByLabel('Create a new GuanYu profile').check();
+  await create.click();
+  await expect(card.getByText('Existing profile found')).toBeVisible();
+  await card.getByRole('button', { name: 'Configure GuanYu' }).click();
+  await expect(page.getByText('Sample preview only. No terminal was opened.')).toBeVisible();
+});
+
+test('browser mode does not probe Hermes', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'OpenShell & settings', exact: true }).click();
+  const card = page.getByRole('region', { name: 'Hermes onboarding' });
+  await expect(card.getByText('Desktop app only')).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+});
+
 test('small-screen layout stays within the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 930 });
   await page.goto('/?preview=1');

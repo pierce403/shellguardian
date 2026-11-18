@@ -51,6 +51,8 @@ async function mockDesktop(page: Page) {
                 error: null,
                 latestVersion: null,
               };
+            if (command === 'discover_hermes')
+              return { installed: false, profileExists: false, profiles: '', installation: null };
             if (command === 'check_openshell_updates')
               return {
                 status: 'current',

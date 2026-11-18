@@ -939,6 +939,7 @@ function OpenShellPage({
         onToast={onToast}
       />
       <AppUpdates status={appUpdate} onStatus={onAppUpdate} onToast={onToast} />
+      <HermesOnboarding onToast={onToast} />
       <section className="settings-card">
         <div className="settings-heading">
           <div className="provider-icon">
@@ -1692,8 +1693,6 @@ export default function App() {
             </>
           )}
           {page === 'openshell' && (
-            <>
-            <HermesOnboarding />
             <OpenShellPage
               data={data}
               gateways={gateways}
@@ -1718,7 +1717,6 @@ export default function App() {
                 void checkUpdates();
               }}
             />
-            </>
           )}
           {page === 'overview' && <UsageCoverage />}
           <footer className="page-footer">

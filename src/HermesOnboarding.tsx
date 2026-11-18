@@ -1,90 +1,171 @@
 import { useCallback, useEffect, useState } from 'react';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { Bot, ExternalLink, LoaderCircle, RefreshCw, TerminalSquare, UserPlus } from 'lucide-react';
+import * as api from './api';
+import type { HermesDiscovery } from './types';
 
-type Discovery = {
-  installed: boolean;
-  profileExists: boolean;
-  profiles: string;
-  installation: string | null;
-};
-
-export default function HermesOnboarding() {
-  const [discovery, setDiscovery] = useState<Discovery | null>(null);
+export default function HermesOnboarding({ onToast }: { onToast: (message: string) => void }) {
+  const available = api.desktopMode || api.previewMode;
+  const [discovery, setDiscovery] = useState<HermesDiscovery | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+
   const refresh = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!available) return;
     setLoading(true);
     setError(null);
     try {
-      setDiscovery(await invoke<Discovery>('discover_hermes'));
+      setDiscovery(await api.discoverHermes());
     } catch (e) {
-      setError(String(e));
+      setError(api.errorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
+  }, [available]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
   async function createProfile() {
     setError(null);
-    setNotice(null);
     setLoading(true);
     try {
-      await invoke('create_guanyu_profile');
+      await api.createGuanyuProfile();
       setConfirmed(false);
-      setNotice('GuanYu profile created. Configure its provider and permissions next.');
-      await refresh();
-    } catch (e) { setError(String(e)); }
-    finally { setLoading(false); }
+      onToast('GuanYu profile created. Configure its provider next.');
+    } catch (e) {
+      setError(api.errorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+    await refresh();
   }
-  async function setup() {
+
+  async function configure() {
     setError(null);
     try {
-      await invoke('start_guanyu_onboarding');
-      setNotice('Hermes setup was launched in a separate terminal. Refresh when finished.');
-    } catch (e) { setError(String(e)); }
+      await api.startGuanyuOnboarding();
+      onToast(
+        api.previewMode
+          ? 'Sample preview only. No terminal was opened.'
+          : 'Hermes setup opened in a separate terminal. Refresh when finished.',
+      );
+    } catch (e) {
+      setError(api.errorMessage(e));
+    }
   }
+
+  const installation = !available
+    ? 'Desktop app only'
+    : loading && !discovery
+      ? 'Checking…'
+      : discovery?.installed
+        ? 'Detected'
+        : discovery
+          ? 'Not detected'
+          : 'Unavailable';
+
   return (
     <section className="settings-card" aria-label="Hermes onboarding">
       <div className="settings-heading">
-        <div><h3>Hermes agents</h3><p>Discover existing profiles before provisioning GuanYu.</p></div>
+        <div className="provider-icon">
+          <Bot size={23} />
+        </div>
+        <div>
+          <h3>Hermes agents</h3>
+          <p>Discover existing profiles before provisioning GuanYu.</p>
+        </div>
+        <span className="version-pill">{installation}</span>
       </div>
-      {!isTauri() ? <p>Hermes discovery requires the ShellGuardian desktop app.</p> :
+      {api.previewMode && (
+        <p className="muted-copy">Sample preview only. This is not a live Hermes installation.</p>
+      )}
+      {discovery?.installation && (
+        <div className="settings-row">
+          <span>Executable</span>
+          <code>{discovery.installation}</code>
+        </div>
+      )}
+      {discovery?.installed && (
+        <div className="settings-row">
+          <span>GuanYu profile</span>
+          <strong>{discovery.profileExists ? 'Existing profile found' : 'Not configured'}</strong>
+        </div>
+      )}
+      {discovery?.installed && discovery.profiles.trim() && (
+        <details className="hermes-profiles">
+          <summary>Existing Hermes profiles</summary>
+          <pre>{discovery.profiles}</pre>
+        </details>
+      )}
+      {discovery && !discovery.installed && (
+        <p className="muted-copy">
+          Install Hermes using its official installation guide, then select Refresh. ShellGuardian
+          never downloads or runs an install script.
+        </p>
+      )}
+      {discovery?.installed && !discovery.profileExists && (
         <>
-          <div className="settings-row"><span>Installation</span>
-            <strong>{loading && !discovery ? 'Checking…' : discovery?.installed ? 'Detected' : 'Not detected'}</strong>
-          </div>
-          {discovery?.installation && <div className="settings-row"><span>Executable</span><code>{discovery.installation}</code></div>}
-          {discovery?.installed && <div className="settings-row"><span>GuanYu profile</span>
-            <strong>{discovery.profileExists ? 'Existing profile found' : 'Not configured'}</strong></div>}
-          {discovery?.installed && discovery.profiles.trim() && (
-            <details><summary>Existing Hermes profiles</summary><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{discovery.profiles}</pre></details>
-          )}
-          {discovery && !discovery.installed && <p>
-            Install Hermes from its <a href="https://hermes-agent.nousresearch.com/docs/getting-started/installation/" target="_blank" rel="noreferrer">official installation guide</a>,
-            then select Refresh. ShellGuardian will never execute a downloaded install script automatically.
-          </p>}
-          {discovery?.installed && !discovery.profileExists && <>
-            <p>GuanYu will be a separate Hermes profile. Existing Hermes profiles and credentials are not overwritten.</p>
-            <label style={{display:'flex',gap:8,alignItems:'center'}}>
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)}/>
-              Create a new GuanYu profile
-            </label>
-            <button className="button primary" disabled={!confirmed || loading} onClick={() => void createProfile()}>
-              Create GuanYu
-            </button>
-          </>}
-          {discovery?.profileExists && <p>GuanYu is ready for Hermes provider and tool onboarding. Setup runs in a separate terminal so credentials stay outside ShellGuardian.</p>}
-          <div className="drawer-actions">
-            <button className="button" disabled={loading} onClick={() => void refresh()}>Refresh Hermes</button>
-            {discovery?.profileExists && <button className="button primary" onClick={() => void setup()}>Configure GuanYu</button>}
-          </div>
-          {notice && <p role="status">{notice}</p>}
-          {error && <p role="alert">{error}</p>}
+          <p className="muted-copy">
+            GuanYu will be a separate Hermes profile. Existing profiles and credentials are not
+            changed.
+          </p>
+          <label className="hermes-confirm">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              disabled={loading}
+              onChange={(e) => setConfirmed(e.target.checked)}
+            />
+            Create a new GuanYu profile
+          </label>
         </>
-      }
+      )}
+      {discovery?.profileExists && (
+        <p className="muted-copy">
+          GuanYu is ready for provider and tool setup. Setup runs in a separate terminal so
+          credentials stay outside ShellGuardian.
+        </p>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="settings-buttons">
+        {discovery?.installed && !discovery.profileExists && (
+          <button
+            className="button primary"
+            disabled={!confirmed || loading}
+            onClick={() => void createProfile()}
+          >
+            <UserPlus size={16} />
+            Create GuanYu
+          </button>
+        )}
+        {discovery?.profileExists && (
+          <button className="button primary" disabled={loading} onClick={() => void configure()}>
+            <TerminalSquare size={16} />
+            Configure GuanYu
+          </button>
+        )}
+        <button className="button" disabled={!available || loading} onClick={() => void refresh()}>
+          {loading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+          Refresh
+        </button>
+        {discovery && !discovery.installed && (
+          <button
+            className="button"
+            onClick={() => {
+              void api.openHermesInstallGuide().catch((e) => onToast(api.errorMessage(e)));
+            }}
+          >
+            Installation guide
+            <ExternalLink size={15} />
+          </button>
+        )}
+      </div>
     </section>
   );
 }

@@ -79,6 +79,13 @@ export interface UpdateInfo {
 }
 export type LifecycleAction = 'start' | 'stop';
 export type ProviderAction = 'attach' | 'detach';
+export interface HermesDiscovery {
+  installed: boolean;
+  profileExists: boolean;
+  profiles: string;
+  installation: string | null;
+}
+
 export interface AppUpdateStatus {
   appVersion: string;
   enabled: boolean;

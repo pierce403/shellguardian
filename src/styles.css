@@ -1243,6 +1243,32 @@ h1 {
   display: flex;
   gap: 10px;
 }
+.hermes-profiles summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 10px 0;
+}
+.hermes-profiles pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--secondary);
+  background: var(--surface-muted);
+  border-radius: 7px;
+  padding: 11px 13px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.hermes-confirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--secondary);
+  margin: 0 0 13px;
+}
 .settings-card > .muted-copy {
   margin: 13px 0;
 }

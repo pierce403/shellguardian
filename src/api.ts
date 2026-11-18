@@ -16,6 +16,7 @@ import type {
   AgentTerminalTarget,
   AgentTerminalSession,
   AgentTerminalRead,
+  HermesDiscovery,
 } from './types';
 
 export const previewMode = new URLSearchParams(window.location.search).get('preview') === '1';
@@ -195,6 +196,35 @@ export async function checkUpdates(): Promise<UpdateInfo> {
 export async function openReleases(): Promise<void> {
   if (desktopMode && !previewMode) return invoke('open_openshell_releases');
   window.open('https://github.com/NVIDIA/OpenShell/releases', '_blank', 'noopener,noreferrer');
+}
+
+const hermesInstallGuide =
+  'https://hermes-agent.nousresearch.com/docs/getting-started/installation/';
+let previewHermes: HermesDiscovery = {
+  installed: true,
+  profileExists: false,
+  profiles: 'default\n',
+  installation: '/home/sample/.local/bin/hermes',
+};
+export async function discoverHermes(): Promise<HermesDiscovery | null> {
+  if (previewMode) return { ...previewHermes };
+  if (!desktopMode) return null;
+  return invoke('discover_hermes');
+}
+export async function createGuanyuProfile(): Promise<void> {
+  if (previewMode) {
+    previewHermes = { ...previewHermes, profileExists: true, profiles: 'default\nguanyu\n' };
+    return;
+  }
+  return invoke('create_guanyu_profile');
+}
+export async function startGuanyuOnboarding(): Promise<void> {
+  if (previewMode) return;
+  return invoke('start_guanyu_onboarding');
+}
+export async function openHermesInstallGuide(): Promise<void> {
+  if (desktopMode && !previewMode) return invoke('open_hermes_install_guide');
+  window.open(hermesInstallGuide, '_blank', 'noopener,noreferrer');
 }
 
 export async function getSshConnections(): Promise<SshConnection[]> {
