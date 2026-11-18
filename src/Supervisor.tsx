@@ -193,6 +193,7 @@ export default function Supervisor({
   const [downloading, setDownloading] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const { discovery, supervisor, conversation } = hermes;
   const messages = conversation?.messages ?? [];
   const profiles = discovery?.profiles ?? [];
@@ -204,6 +205,16 @@ export default function Supervisor({
 
   function configure(profile: string) {
     setTerminal({ hermes: 'setup', profile });
+  }
+
+  function chooseProvider(profile: string) {
+    setTerminal({ hermes: 'model', profile });
+  }
+
+  function chatWith(profile: string) {
+    hermes.choose(profile);
+    composer.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => composer.current?.focus(), 0);
   }
 
   async function downloadInstaller() {
@@ -284,6 +295,8 @@ export default function Supervisor({
   }
 
   const unconfigured = supervisor !== null && supervisor.model === null;
+  // Hermes reports a placeholder OpenRouter model until a provider is chosen.
+  const placeholder = supervisor !== null && !unconfigured && supervisor.provider === 'auto';
 
   return (
     <div className="supervisor-layout">
@@ -401,24 +414,27 @@ export default function Supervisor({
               <h3>{supervisor ? `Talk to ${supervisor.name}` : 'No Hermes agents yet'}</h3>
               <p>
                 {supervisor
-                  ? `${supervisor.model ?? 'No model configured'} · gateway ${supervisor.gateway ?? 'unknown'}`
+                  ? `${supervisor.model ?? 'No model configured'}${supervisor.provider ? ` via ${supervisor.provider}` : ''} · gateway ${supervisor.gateway ?? 'unknown'}`
                   : 'Create a supervisor agent below.'}
               </p>
             </div>
             {profiles.length > 1 && (
-              <select
-                className="supervisor-select"
-                aria-label="Supervisor agent"
-                value={supervisor?.name ?? ''}
-                disabled={hermes.sending}
-                onChange={(e) => hermes.choose(e.target.value)}
-              >
-                {profiles.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <label className="supervisor-select-label">
+                Agent
+                <select
+                  className="supervisor-select"
+                  aria-label="Supervisor agent"
+                  value={supervisor?.name ?? ''}
+                  disabled={hermes.sending}
+                  onChange={(e) => hermes.choose(e.target.value)}
+                >
+                  {profiles.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
           </div>
 
@@ -431,6 +447,19 @@ export default function Supervisor({
               <button className="button primary" onClick={() => void configure(supervisor.name)}>
                 <TerminalSquare size={16} />
                 Configure {supervisor.name}
+              </button>
+            </div>
+          )}
+          {placeholder && (
+            <div className="supervisor-notice" role="status">
+              <p>
+                {supervisor.name} has no provider chosen, so Hermes falls back to its placeholder
+                default ({supervisor.model} on OpenRouter), which needs an OpenRouter key. Choose
+                the provider you signed in to, such as OpenAI Codex.
+              </p>
+              <button className="button primary" onClick={() => chooseProvider(supervisor.name)}>
+                <TerminalSquare size={16} />
+                Choose provider for {supervisor.name}
               </button>
             </div>
           )}
@@ -466,6 +495,7 @@ export default function Supervisor({
               </div>
               <form className="supervisor-compose" onSubmit={(e) => void submit(e)}>
                 <textarea
+                  ref={composer}
                   aria-label={`Message ${supervisor.name}`}
                   placeholder={
                     unconfigured
@@ -510,13 +540,37 @@ export default function Supervisor({
             <h3>Agents</h3>
           </div>
           {profiles.map((p) => (
-            <div className="settings-row" key={p.name}>
+            <div
+              className={`settings-row${p.name === supervisor?.name ? ' selected' : ''}`}
+              key={p.name}
+            >
               <span>
                 {p.name}
                 {p.active ? ' (active)' : ''}
+                {p.name === supervisor?.name ? ' · chatting' : ''}
               </span>
               <span className="supervisor-row-actions">
-                <strong>{p.model ?? 'Not configured'}</strong>
+                <strong>
+                  {p.model === null
+                    ? 'Not configured'
+                    : p.provider === 'auto'
+                      ? 'No provider chosen'
+                      : `${p.model}${p.provider ? ` via ${p.provider}` : ''}`}
+                </strong>
+                <button
+                  className="button compact"
+                  aria-label={`Chat with ${p.name}`}
+                  onClick={() => chatWith(p.name)}
+                >
+                  Chat
+                </button>
+                <button
+                  className="button compact"
+                  aria-label={`Choose provider for ${p.name}`}
+                  onClick={() => chooseProvider(p.name)}
+                >
+                  Provider
+                </button>
                 <button className="button compact" onClick={() => void configure(p.name)}>
                   Configure
                 </button>

@@ -72,6 +72,10 @@ pub struct HermesProfile {
     gateway: Option<String>,
     /// Hermes's sticky active profile.
     active: bool,
+    /// Inference provider from `hermes profile show`, e.g. `openai-codex`.
+    /// `auto` means none was chosen and Hermes falls back to its placeholder
+    /// OpenRouter default. `None` when unknown.
+    provider: Option<String>,
 }
 
 /// Read-only summary of the local Hermes installation.
@@ -211,12 +215,58 @@ fn parse_profile_list(text: &str) -> Vec<HermesProfile> {
             model: none_if_dash(columns.get(1).copied()),
             gateway: none_if_dash(columns.get(2).copied()),
             active,
+            provider: None,
         });
         if profiles.len() == PROFILE_COUNT_LIMIT {
             break;
         }
     }
     profiles
+}
+
+/// Extracts the provider from `hermes profile show`'s `Model: <model> (<provider>)`
+/// line. Only a short, plain token is accepted.
+fn parse_provider(show: &str) -> Option<String> {
+    let line = show
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Model:"))?
+        .trim();
+    let provider = line.strip_suffix(')')?.rsplit_once('(')?.1.trim();
+    (!provider.is_empty()
+        && provider.len() <= 64
+        && provider
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/')))
+    .then(|| provider.to_owned())
+}
+
+/// Profiles whose provider is looked up per discovery; the rest stay unknown.
+const PROVIDER_LOOKUP_LIMIT: usize = 16;
+
+/// Fills each profile's provider by running `hermes profile show` concurrently.
+/// A failed lookup leaves the provider unknown rather than failing discovery.
+async fn fill_providers(binary: &Path, profiles: &mut [HermesProfile]) {
+    let mut lookups = tokio::task::JoinSet::new();
+    for (index, profile) in profiles.iter().enumerate().take(PROVIDER_LOOKUP_LIMIT) {
+        let binary = binary.to_owned();
+        let name = profile.name.clone();
+        lookups.spawn(async move {
+            let output = run_hermes(&binary, &["profile", "show", &name])
+                .await
+                .ok()?;
+            output
+                .status
+                .success()
+                .then(|| parse_provider(&sanitize_text(&output.stdout, PROFILE_LIST_LIMIT)))
+                .flatten()
+                .map(|provider| (index, provider))
+        });
+    }
+    while let Some(result) = lookups.join_next().await {
+        if let Ok(Some((index, provider))) = result {
+            profiles[index].provider = Some(provider);
+        }
+    }
 }
 
 /// Extracts the final `session_id: <id>` line Hermes writes to stderr.
@@ -313,7 +363,8 @@ async fn discover_with(binary: Option<PathBuf>) -> Result<HermesDiscovery, Strin
             profile_text: String::new(),
         });
     };
-    let (profiles, profile_text) = list_profiles(&binary).await?;
+    let (mut profiles, profile_text) = list_profiles(&binary).await?;
+    fill_providers(&binary, &mut profiles).await;
     Ok(HermesDiscovery {
         installed: true,
         installation: Some(binary.to_string_lossy().into_owned()),
@@ -509,6 +560,8 @@ pub enum HermesTerminalAction {
     Install { sha256: String },
     /// Run `hermes -p <profile> setup`.
     Setup { profile: String },
+    /// Run `hermes -p <profile> setup model` to choose only the provider and model.
+    Model { profile: String },
 }
 
 /// Re-reads the staged script and builds its command only if it is byte for
@@ -535,6 +588,19 @@ fn setup_command(binary: &Path, profile: &str) -> Result<CommandBuilder, String>
     Ok(pty_command(
         binary,
         &[OsStr::new("-p"), OsStr::new(profile), OsStr::new("setup")],
+    ))
+}
+
+fn model_command(binary: &Path, profile: &str) -> Result<CommandBuilder, String> {
+    require_profile_name(profile)?;
+    Ok(pty_command(
+        binary,
+        &[
+            OsStr::new("-p"),
+            OsStr::new(profile),
+            OsStr::new("setup"),
+            OsStr::new("model"),
+        ],
     ))
 }
 
@@ -572,6 +638,14 @@ pub async fn open_hermes_terminal(
             (
                 setup_command(&binary, &profile).map_err(Error::new)?,
                 "Could not start Hermes setup.",
+            )
+        }
+        HermesTerminalAction::Model { profile } => {
+            let binary = hermes_path()
+                .ok_or_else(|| Error::new("Hermes is not installed on this machine."))?;
+            (
+                model_command(&binary, &profile).map_err(Error::new)?,
+                "Could not start Hermes provider setup.",
             )
         }
     };
@@ -769,12 +843,14 @@ mod tests {
                     model: None,
                     gateway: Some("stopped".into()),
                     active: true,
+                    provider: None,
                 },
                 HermesProfile {
                     name: "guanyu".into(),
                     model: Some("anthropic/claude-sonnet-4".into()),
                     gateway: Some("running".into()),
                     active: false,
+                    provider: None,
                 },
             ]
         );
@@ -937,6 +1013,38 @@ mod tests {
         );
         assert_eq!(command.get_env("OPENAI_API_KEY"), None);
         assert_eq!(command.get_env("SHELLGUARDIAN_UNLISTED_TEST_VAR"), None);
+    }
+
+    #[test]
+    fn model_command_is_fixed() {
+        assert!(model_command(Path::new("/usr/bin/hermes"), "../x").is_err());
+        let command = model_command(Path::new("/usr/bin/hermes"), "scout").unwrap();
+        let argv: Vec<_> = command
+            .get_argv()
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            argv,
+            vec!["/usr/bin/hermes", "-p", "scout", "setup", "model"]
+        );
+        assert_eq!(command.get_env("OPENAI_API_KEY"), None);
+        let action: HermesTerminalAction =
+            serde_json::from_str(r#"{"action":"model","profile":"scout"}"#).unwrap();
+        assert!(matches!(action, HermesTerminalAction::Model { profile } if profile == "scout"));
+    }
+
+    #[test]
+    fn parses_provider_from_profile_show() {
+        let show = "\nProfile: guanyu\nPath:    /home/x/.hermes/profiles/guanyu\nModel:   anthropic/claude-opus-4.6 (auto)\nGateway: stopped\n";
+        assert_eq!(parse_provider(show), Some("auto".into()));
+        assert_eq!(
+            parse_provider("Model: gpt-5.5 (openai-codex)\n"),
+            Some("openai-codex".into())
+        );
+        assert_eq!(parse_provider("Model: —\n"), None);
+        assert_eq!(parse_provider("Model: x (two words)\n"), None);
+        assert_eq!(parse_provider("Gateway: stopped\n"), None);
     }
 
     #[test]

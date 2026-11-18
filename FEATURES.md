@@ -255,7 +255,10 @@ Test Criteria:
   - Installation downloads the official script over HTTPS, shows its SHA-256 and text,
     and runs only that exact file, re-hashed, in an in-app terminal with `--skip-setup`.
   - Provider setup is Hermes's own wizard in an in-app terminal. Its output is shown,
-    never logged or persisted; ShellGuardian never reads stored keys.
+    never logged or persisted; ShellGuardian never reads stored keys. "Provider" runs
+    only `hermes -p <profile> setup model`. Discovery reads each profile's provider from
+    `hermes profile show`; `auto` is flagged as Hermes's placeholder OpenRouter default.
+  - Each agent row has Chat, which selects it in the chat panel and focuses the composer.
   - Remote host support is not implemented.
 - **Test criteria**:
   - [x] Rust tests: name/session validation, profile-table parsing, error and

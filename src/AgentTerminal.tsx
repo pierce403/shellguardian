@@ -53,7 +53,9 @@ export default function AgentTerminal({
   const title = hermes
     ? hermes.hermes === 'install'
       ? 'Install Hermes'
-      : `Configure ${hermes.profile}`
+      : hermes.hermes === 'model'
+        ? `Choose provider for ${hermes.profile}`
+        : `Configure ${hermes.profile}`
     : sandbox!.name;
   const targetKey = hermes
     ? `hermes:${hermes.hermes}:${hermes.hermes === 'install' ? hermes.sha256 : hermes.profile}`

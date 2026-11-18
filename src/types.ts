@@ -84,6 +84,8 @@ export interface HermesProfile {
   model: string | null;
   gateway: string | null;
   active: boolean;
+  /** Inference provider; 'auto' means none chosen yet. Null when unknown. */
+  provider: string | null;
 }
 
 export interface HermesDiscovery {
@@ -127,7 +129,9 @@ export interface AgentTerminalTarget {
   kind: TerminalKind;
 }
 export type HermesTerminalTarget =
-  { hermes: 'install'; sha256: string } | { hermes: 'setup'; profile: string };
+  | { hermes: 'install'; sha256: string }
+  | { hermes: 'setup'; profile: string }
+  | { hermes: 'model'; profile: string };
 export type TerminalTarget = AgentTerminalTarget | HermesTerminalTarget;
 export interface InstallerPreview {
   url: string;

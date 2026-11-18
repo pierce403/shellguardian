@@ -207,8 +207,20 @@ let previewHermes: HermesDiscovery = {
   installed: true,
   installation: '/home/sample/.local/bin/hermes',
   profiles: [
-    { name: 'default', model: null, gateway: 'stopped', active: true },
-    { name: 'guanyu', model: 'sample/model', gateway: 'running', active: false },
+    {
+      name: 'default',
+      model: 'sample/placeholder',
+      gateway: 'stopped',
+      active: true,
+      provider: 'auto',
+    },
+    {
+      name: 'guanyu',
+      model: 'sample/model',
+      gateway: 'running',
+      active: false,
+      provider: 'sample-provider',
+    },
   ],
   profileText: '',
 };
@@ -226,7 +238,7 @@ export async function createHermesProfile(name: string): Promise<void> {
       ...previewHermes,
       profiles: [
         ...previewHermes.profiles,
-        { name, model: null, gateway: 'stopped', active: false },
+        { name, model: null, gateway: 'stopped', active: false, provider: null },
       ],
     };
     return;
@@ -252,7 +264,7 @@ export async function openHermesTerminal(
   const action =
     target.hermes === 'install'
       ? { action: 'install', sha256: target.sha256 }
-      : { action: 'setup', profile: target.profile };
+      : { action: target.hermes, profile: target.profile };
   return invoke('open_hermes_terminal', { action, cols, rows });
 }
 export async function hermesChat(

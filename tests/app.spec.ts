@@ -183,6 +183,17 @@ test('sample supervisor chats, creates agents, and stays simulated', async ({ pa
   await setup.getByRole('button', { name: 'Close terminal' }).click();
   await expect(setup).toHaveCount(0);
 
+  await agents.getByRole('button', { name: 'Chat with default' }).click();
+  await expect(chat.getByRole('heading', { name: 'Talk to default' })).toBeVisible();
+  await expect(chat.getByLabel('Message default')).toBeFocused();
+  await expect(chat.getByText('default has no provider chosen', { exact: false })).toBeVisible();
+  await expect(agents.getByText('No provider chosen')).toBeVisible();
+  await chat.getByRole('button', { name: 'Choose provider for default' }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose provider for default' });
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: 'Close terminal' }).click();
+  await expect(picker).toHaveCount(0);
+
   await chat.getByLabel('Supervisor agent').selectOption('guanyu');
   await expect(chat.getByText('How are my agents?')).toBeVisible();
   await chat.getByRole('button', { name: 'New conversation' }).click();

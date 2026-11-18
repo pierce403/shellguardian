@@ -2370,3 +2370,17 @@ textarea::placeholder {
   flex-shrink: 0;
   margin-top: 1px;
 }
+.supervisor-select-label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  color: var(--secondary);
+  font-size: 12px;
+}
+.supervisor-select-label .supervisor-select {
+  margin-left: 0;
+}
+.settings-row.selected > span:first-child {
+  font-weight: 600;
+}
