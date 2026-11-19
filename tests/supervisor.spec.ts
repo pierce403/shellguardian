@@ -343,7 +343,10 @@ test('browser mode does not probe Hermes', async ({ page }) => {
 type Bridge = {
   /** Makes every progress read fail. */
   progressError?: boolean;
-  tasksDelay?: number;
+  /** Holds the first task list until the test sets `__bridge.holdTasks = false`. */
+  holdTasks?: boolean;
+  /** Keeps a chat turn running until Stop is requested. */
+  holdChat?: boolean;
   tasksError?: string | null;
   /** Profiles `discover_hermes` reports; null means Hermes is not installed. */
   profiles:
@@ -359,8 +362,9 @@ async function mockDesktop(page: Page, bridge: Bridge) {
       revision: 'r1',
       tasks: [] as Record<string, unknown>[],
       truncated: false,
-      /** Delay before the task list answers, or a failure message. */
-      tasksDelay: initial.tasksDelay ?? 0,
+      holdTasks: initial.holdTasks ?? false,
+      holdChat: initial.holdChat ?? false,
+      stopRequested: false,
       tasksError: initial.tasksError ?? null,
       gatewayUp: false,
       chat: null as null | { text: string; steps: unknown[]; started: number },
@@ -427,7 +431,8 @@ async function mockDesktop(page: Page, bridge: Bridge) {
               ];
               state.chat.text = 'All ';
               // Long enough for the page's progress poll to show the live steps.
-              await wait(1600);
+              if (state.holdChat) while (!state.stopRequested) await wait(40);
+              else await wait(1600);
               const steps = [
                 { name: 'kanban_show', detail: 't_1', done: true, failed: false, durationMs: 1200 },
                 { name: 'terminal', detail: null, done: true, failed: true, durationMs: 300 },
@@ -466,7 +471,8 @@ async function mockDesktop(page: Page, bridge: Bridge) {
                     stopping: false,
                   };
             case 'stop_hermes_chat':
-              return false;
+              state.stopRequested = true;
+              return state.chat !== null;
             case 'hermes_kanban_boards':
               return [
                 { slug: 'default', name: 'Default', is_current: true, total: state.tasks.length },
@@ -474,7 +480,7 @@ async function mockDesktop(page: Page, bridge: Bridge) {
             case 'hermes_kanban_revision':
               return state.revision;
             case 'hermes_kanban_tasks':
-              if (state.tasksDelay) await wait(state.tasksDelay);
+              while (state.holdTasks) await wait(40);
               if (state.tasksError) throw state.tasksError;
               return { tasks: state.tasks, truncated: state.truncated };
             case 'hermes_kanban_task':
@@ -625,22 +631,32 @@ test('desktop chat says honestly how a turn ended', async ({ page }) => {
 });
 
 test('desktop Stop arms on its own clock, even when progress cannot be read', async ({ page }) => {
-  await mockDesktop(page, { profiles: GUANYU, progressError: true });
+  await mockDesktop(page, { profiles: GUANYU, progressError: true, holdChat: true });
   await page.goto('/');
   await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   const chat = page.getByRole('region', { name: 'Supervisor chat' });
-  await chat.getByLabel('Message guanyu').fill('status');
-  await chat.getByLabel('Message guanyu').press('Enter');
-  const stop = chat.getByRole('button', { name: 'Stop' });
+  const box = chat.getByLabel('Message guanyu');
+  await box.fill('status');
+  // Send and read the button inside the page: a round trip through the test
+  // runner could outlast the guard on a slow machine.
+  const disabledAtFirst = await box.evaluate(async (node) => {
+    (node as HTMLTextAreaElement).form?.requestSubmit();
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    const stop = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Stop',
+    );
+    return stop ? stop.disabled : null;
+  });
   // Not at once (a double-click on Send must not stop the turn), but soon.
-  await expect(stop).toBeDisabled();
+  expect(disabledAtFirst).toBe(true);
+  const stop = chat.getByRole('button', { name: 'Stop' });
   await expect(stop).toBeEnabled();
   await stop.click();
   expect(await calls(page, 'stop_hermes_chat')).toHaveLength(1);
 });
 
 test('desktop board never shows counts it has not read', async ({ page }) => {
-  await mockDesktop(page, { profiles: GUANYU, tasksDelay: 2500 });
+  await mockDesktop(page, { profiles: GUANYU, holdTasks: true });
   await page.goto('/');
   await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   // While the first read is in flight nothing claims the board is empty or idle.
@@ -650,7 +666,11 @@ test('desktop board never shows counts it has not read', async ({ page }) => {
   await tab(page, 'Board');
   await expect(page.getByLabel('Board summary')).toContainText('Reading the board');
   await expect(page.getByLabel('Board summary')).not.toContainText('running');
-  await expect(page.getByText('No tasks on this board yet')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText('No tasks on this board yet')).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as unknown as { __bridge: { holdTasks: boolean } }).__bridge.holdTasks = false;
+  });
+  await expect(page.getByText('No tasks on this board yet')).toBeVisible();
   await expect(page.getByLabel('Board summary')).toContainText('0 running');
 });
 
