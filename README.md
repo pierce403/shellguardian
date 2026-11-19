@@ -5,7 +5,8 @@ A Tauri desktop control room for NVIDIA OpenShell agents. [shellguardian.org](ht
 Inspect agent access,
 control sandbox lifecycle, manage provider attachments, review network policies,
 talk to an interactive agent, open a sandbox terminal, and check the installed
-OpenShell version and official release status.
+OpenShell version and official release status. A Supervisor page talks to a local
+Hermes agent and follows the work it hands out.
 
 OpenShell owns the state, credentials, authentication, and enforcement.
 ShellGuardian has no database, service daemon, or persistent browser storage.
@@ -74,6 +75,28 @@ Changing scope or quitting closes the local connections. Output and scrollback
 stay in memory and can include sensitive text you ask the sandbox to print.
 OpenShell owns its existing agent state and history.
 
+### Ask a Hermes supervisor
+
+The **Supervisor** page works with a local [Hermes](https://hermes-agent.nousresearch.com/)
+agent. Hermes is separate from OpenShell: it keeps its own profiles, credentials,
+sessions, and task board, and ShellGuardian reads and changes them only through the
+installed `hermes` command and its local gateway. If Hermes is missing, the page can
+download its official installer, show you the script and its SHA-256, and run it in
+an in-app terminal once you confirm.
+
+- **Chat** sends one message at a time and shows the steps the agent takes while it
+  works. **Stop** interrupts the turn at the Hermes gateway, and says the turn stopped
+  only when Hermes confirms it.
+- **Board** follows the agent's kanban tasks as they move: status, timeline, worker
+  log, and the worker's own transcript. You can create tasks and comment on them.
+- **Agents** creates profiles, chooses a provider and model, saves an API key through
+  Hermes, and shows the usage windows Hermes reports for signed-in subscriptions.
+- **Sessions** and **Schedules** list conversations, task runs, and scheduled jobs.
+
+An agent's gateway starts when you click **Start gateway** or send that agent a
+message. Tasks run only while the assigned agent's gateway is up. Chat text, worker
+logs, and transcripts stay in memory and are never written by ShellGuardian.
+
 ### Development
 
 Requirements: NVIDIA OpenShell 0.1.2, Node.js 22.12+ (validated with 24.19), Rust
@@ -136,6 +159,10 @@ uses an ignored development cache; it is not part of the application.
   old environment, even after the attachment changes for new processes.
 - No gateway provisioning, sandbox creation/deletion, automatic OpenShell installation,
   token-budget enforcement, or persistent activity archive is included.
+- The Supervisor was built and tested against Hermes 0.16.0. Its workers run as Hermes
+  agents on your machine, not inside OpenShell sandboxes; running agent CLIs in
+  sandboxes with supervisor-chosen providers is planned. Usage is shown only for
+  providers Hermes can report on, and is otherwise marked unavailable.
 - A native tunnel fixture verifies authenticated OpenShell reads and disconnect.
   Physical remote-host acceptance and live agent mutations still require a
   disposable test environment. Existing agents and credentials were not changed.
