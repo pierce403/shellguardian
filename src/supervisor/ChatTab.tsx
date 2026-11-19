@@ -1,5 +1,12 @@
 // Chat with the supervisor, with the work it creates alongside.
-import { useEffect, useLayoutEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import {
   Activity,
   ArrowRight,
@@ -168,6 +175,18 @@ export function ChatTab({
   useEffect(() => {
     pinned.current = true;
   }, [supervisor?.name]);
+  // Send turns into Stop in place: ignore the first moment, so a double-click
+  // on Send cannot stop the turn it just started. Timed here rather than from
+  // Hermes's progress, so Stop works even when progress cannot be read.
+  const [stopArmed, setStopArmed] = useState(false);
+  useEffect(() => {
+    if (!sending) {
+      setStopArmed(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setStopArmed(true), STOP_ARMS_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [sending]);
 
   if (!supervisor) return null;
   const name = supervisor.name;
@@ -368,9 +387,7 @@ export function ChatTab({
               <button
                 type="button"
                 className="button"
-                // Send turns into Stop in place: ignore the first moment, so a
-                // double-click on Send cannot stop the turn it just started.
-                disabled={progress?.stopping || (progress?.elapsedMs ?? 0) < STOP_ARMS_AFTER_MS}
+                disabled={progress?.stopping || !stopArmed}
                 onClick={hermes.stop}
               >
                 <Square size={13} aria-hidden="true" />

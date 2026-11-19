@@ -341,6 +341,8 @@ test('browser mode does not probe Hermes', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 type Bridge = {
+  /** Makes every progress read fail. */
+  progressError?: boolean;
   tasksDelay?: number;
   tasksError?: string | null;
   /** Profiles `discover_hermes` reports; null means Hermes is not installed. */
@@ -445,6 +447,7 @@ async function mockDesktop(page: Page, bridge: Bridge) {
               };
             }
             case 'hermes_chat_progress':
+              if (initial.progressError) throw 'progress unavailable';
               return state.chat
                 ? {
                     active: true,
@@ -619,6 +622,21 @@ test('desktop chat says honestly how a turn ended', async ({ page }) => {
   // A numbered list that resumes after a paragraph keeps its numbers.
   await expect(last().locator('.md ol').nth(0)).toHaveAttribute('start', '3');
   await expect(last().locator('.md ol').nth(1)).toHaveAttribute('start', '4');
+});
+
+test('desktop Stop arms on its own clock, even when progress cannot be read', async ({ page }) => {
+  await mockDesktop(page, { profiles: GUANYU, progressError: true });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  const chat = page.getByRole('region', { name: 'Supervisor chat' });
+  await chat.getByLabel('Message guanyu').fill('status');
+  await chat.getByLabel('Message guanyu').press('Enter');
+  const stop = chat.getByRole('button', { name: 'Stop' });
+  // Not at once (a double-click on Send must not stop the turn), but soon.
+  await expect(stop).toBeDisabled();
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  expect(await calls(page, 'stop_hermes_chat')).toHaveLength(1);
 });
 
 test('desktop board never shows counts it has not read', async ({ page }) => {

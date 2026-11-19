@@ -320,7 +320,8 @@ Test Criteria:
     arguments, trusted database paths, a change signal that ignores readers, the
     interrupt sequence against a scripted gateway, incomplete replies, and time limits
     that keep the session (2026-11-18).
-  - [x] Chromium (50 tests): chat progress, drafts, Stop, retry, Markdown rendering,
+  - [x] Chromium (51 tests): chat progress, drafts, Stop (armed on its own clock, so it
+    works when progress cannot be read), retry, Markdown rendering,
     honest wording for confirmed and unconfirmed stops, board loading and failure
     states that never show unread counts as zero,
     reply-linked tasks, the live board, drawer, new task, filters, capped columns,
