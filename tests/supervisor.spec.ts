@@ -843,7 +843,16 @@ test('desktop install runs only the reviewed installer hash in an in-app termina
             return { data: [], exited: true, exitCode: 0, error: null };
           }
           if (command === 'close_agent_terminal') return null;
-          if (command === 'hermes_kanban_boards') return [];
+          if (command === 'hermes_kanban_boards') {
+            if (!installed) throw 'Hermes is not installed.';
+            return [{ slug: 'default', name: 'Default', is_current: true, total: 1 }];
+          }
+          if (command === 'hermes_kanban_revision') return 'r1';
+          if (command === 'hermes_kanban_tasks')
+            return {
+              tasks: [{ id: 't_1', title: 'First task', status: 'todo' }],
+              truncated: false,
+            };
           if (command === 'hermes_model_options')
             throw 'The Hermes gateway for this agent is not running. Start it first.';
           if (command === 'get_snapshot') throw 'offline';
@@ -884,6 +893,15 @@ test('desktop install runs only the reviewed installer hash in an in-app termina
   await expect(
     page.getByRole('list', { name: 'Hermes agents' }).getByRole('listitem', { name: 'default' }),
   ).toContainText('Not set up yet');
+  // The board is read once Hermes exists (and not before), without a restart.
+  await tab(page, 'Board');
+  await expect(page.getByRole('button', { name: /First task/ })).toBeVisible();
+  const order = await page.evaluate(() =>
+    (window as unknown as { __calls: string[] }).__calls.map((call) => call.split(':')[0]),
+  );
+  expect(order.indexOf('hermes_kanban_boards')).toBeGreaterThan(
+    order.indexOf('open_hermes_terminal'),
+  );
   const opens = await calls(page, 'open_hermes_terminal');
   expect(opens).toHaveLength(1);
   expect(JSON.parse(opens[0].slice('open_hermes_terminal:'.length)).action).toEqual({
