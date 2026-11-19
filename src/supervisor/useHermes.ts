@@ -17,7 +17,13 @@ export type ChatMessage = {
   /** Running token totals for the conversation, as Hermes reports them. */
   tokens?: ChatTokens | null;
   durationMs?: number | null;
+  /** The turn ended early: by you, or by the time limit when `timedOut`. */
   stopped?: boolean;
+  timedOut?: boolean;
+  /** False when the view detached but Hermes did not confirm the turn ended. */
+  stopConfirmed?: boolean;
+  /** Hermes replied but said the turn did not complete. */
+  incomplete?: boolean;
 };
 export type Conversation = { sessionId: string | null; messages: ChatMessage[] };
 
@@ -30,6 +36,8 @@ export function useHermes() {
   const [conversations, setConversations] = useState<Record<string, Conversation>>({});
   const [sending, setSending] = useState<string | null>(null);
   const [progress, setProgress] = useState<ChatProgress | null>(null);
+  // Unsent text per agent, kept here so it survives switching tabs.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const nextId = useRef(1);
   const busy = useRef(false);
 
@@ -115,16 +123,22 @@ export function useHermes() {
           tokens: reply.tokens,
           durationMs: reply.durationMs,
           stopped: reply.stopped,
+          timedOut: reply.timedOut,
+          stopConfirmed: reply.stopConfirmed,
+          incomplete: reply.incomplete,
         });
       } catch (e) {
         append(profile, { role: 'error', text: api.errorMessage(e) });
       } finally {
         busy.current = false;
         setSending(null);
+        // A turn starts the agent's gateway if it was stopped: show that now
+        // instead of at the next scheduled check.
+        void refresh();
       }
       return true;
     },
-    [append, conversations, supervisor],
+    [append, conversations, refresh, supervisor],
   );
 
   const stop = useCallback(() => {
@@ -150,6 +164,16 @@ export function useHermes() {
     sending: Boolean(supervisor && sending === supervisor.name),
     /** True while any agent is answering (only one turn runs at a time). */
     busy: sending !== null,
+    /** The agent that is answering, when it is not the selected one. */
+    busyWith: sending !== null && sending !== supervisor?.name ? sending : null,
+    draft: supervisor ? (drafts[supervisor.name] ?? '') : '',
+    setDraft: useCallback(
+      (text: string) => {
+        const name = supervisor?.name;
+        if (name) setDrafts((all) => ({ ...all, [name]: text }));
+      },
+      [supervisor?.name],
+    ),
     progress: supervisor && sending === supervisor.name ? progress : null,
     send,
     stop,

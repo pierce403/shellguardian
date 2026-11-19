@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 
 type Block =
   | { kind: 'code'; text: string }
-  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'list'; ordered: boolean; start: number; items: string[] }
   | { kind: 'heading'; text: string }
   | { kind: 'paragraph'; text: string };
 
@@ -31,13 +31,15 @@ export function parseBlocks(source: string): Block[] {
       blocks.push({ kind: 'code', text: body.join('\n') });
       continue;
     }
-    const item = /^\s*(?:[-*•]|\d{1,3}[.)])\s+(.*)$/.exec(line);
+    const item = /^\s*(?:[-*•]|(\d{1,3})[.)])\s+(.*)$/.exec(line);
     if (item) {
       flush();
-      const ordered = /^\s*\d/.test(line);
+      const ordered = item[1] !== undefined;
       const last = blocks[blocks.length - 1];
-      if (last?.kind === 'list' && last.ordered === ordered) last.items.push(item[1]);
-      else blocks.push({ kind: 'list', ordered, items: [item[1]] });
+      if (last?.kind === 'list' && last.ordered === ordered) last.items.push(item[2]);
+      // A numbered list keeps the number it was written with, so a list that
+      // resumes after a paragraph or a code block does not restart at 1.
+      else blocks.push({ kind: 'list', ordered, start: Number(item[1] ?? 1), items: [item[2]] });
       continue;
     }
     const heading = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line);
@@ -86,7 +88,13 @@ export function Markdown({ text }: { text: string }) {
         if (block.kind === 'heading') return <h4 key={index}>{inline(block.text)}</h4>;
         if (block.kind === 'list') {
           const items = block.items.map((item, i) => <li key={i}>{inline(item)}</li>);
-          return block.ordered ? <ol key={index}>{items}</ol> : <ul key={index}>{items}</ul>;
+          return block.ordered ? (
+            <ol key={index} start={block.start}>
+              {items}
+            </ol>
+          ) : (
+            <ul key={index}>{items}</ul>
+          );
         }
         return <p key={index}>{inline(block.text)}</p>;
       })}

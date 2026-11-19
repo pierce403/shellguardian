@@ -1,7 +1,8 @@
 // Small presentational pieces shared by the Supervisor views.
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactNode, type SelectHTMLAttributes } from 'react';
 import {
   Check,
+  ChevronDown,
   CircleAlert,
   LoaderCircle,
   Play,
@@ -13,6 +14,23 @@ import * as api from '../api';
 import type { ChatStep, HermesProviderOption, HermesTranscriptRow } from '../types';
 import { formatClock, formatDuration, formatResets, statusMeta, stepLabel } from './format';
 import { Markdown } from './markdown';
+
+/**
+ * A select box drawn by the page, so it looks the same in every engine.
+ * (The desktop app's WebKit otherwise shows the system's own grey control.)
+ */
+export function Select({
+  className = '',
+  children,
+  ...props
+}: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className={`sv-select ${className}`.trim()}>
+      <select {...props}>{children}</select>
+      <ChevronDown size={14} aria-hidden="true" />
+    </span>
+  );
+}
 
 /** A kanban status as a pill with a dot. */
 export function TaskStatus({ status }: { status: string | undefined }) {

@@ -8,12 +8,18 @@ import { Empty, GatewayNotice, RefreshButton } from './parts';
 
 export function SchedulesTab({
   profile,
+  gatewayRunning,
   onGatewayChanged,
 }: {
   profile: string;
+  /** Reloads the list when the agent's gateway comes up. */
+  gatewayRunning: boolean;
   onGatewayChanged: () => void;
 }) {
-  const jobs = useLoad<HermesSchedule[]>(() => api.hermesSchedules(profile), [profile]);
+  const jobs = useLoad<HermesSchedule[]>(
+    () => api.hermesSchedules(profile),
+    [profile, gatewayRunning],
+  );
   return (
     <section className="settings-card sv-schedules" aria-label="Hermes schedules">
       <div className="section-label">

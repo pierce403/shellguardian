@@ -1,6 +1,6 @@
 // Every Hermes session for an agent: chats sent from here, kanban task runs,
 // and interactive conversations. Transcripts are read-only.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { History, MessagesSquare } from 'lucide-react';
 import * as api from '../api';
 import type { HermesSession } from '../types';
@@ -19,15 +19,25 @@ const heading = (session: HermesSession) => session.title ?? session.preview ?? 
 
 export function SessionsTab({
   profile,
+  gatewayRunning,
   onGatewayChanged,
 }: {
   profile: string;
+  gatewayRunning: boolean;
   onGatewayChanged: () => void;
 }) {
   const sessions = useLoad<HermesSession[]>(() => api.hermesSessions(profile), [profile]);
   const transcript = useTranscript();
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState<HermesSession | null>(null);
+
+  // A transcript that failed because the gateway was down loads once it is up.
+  const openId = open?.id ?? null;
+  const waiting = gatewayDown(transcript.error);
+  const loadTranscript = transcript.load;
+  useEffect(() => {
+    if (gatewayRunning && waiting && openId) void loadTranscript(profile, openId);
+  }, [gatewayRunning, waiting, openId, profile, loadTranscript]);
 
   const all = sessions.data ?? [];
   const shown = filter === 'all' ? all : all.filter((session) => session.kind === filter);

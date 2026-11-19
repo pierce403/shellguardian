@@ -6,7 +6,7 @@ import { Modal } from '../ui';
 import type { HermesProfile, KanbanTask, KanbanTaskDetail } from '../types';
 import { STATUSES, elapsed, formatAgo, statusMeta } from './format';
 import { lastNote, useTicker, type useBoard } from './hooks';
-import { Empty, GatewayNotice, RefreshButton } from './parts';
+import { Empty, GatewayNotice, RefreshButton, Select } from './parts';
 
 type Board = ReturnType<typeof useBoard>;
 
@@ -15,6 +15,17 @@ const CORE = ['todo', 'ready', 'running', 'blocked', 'done'];
 const WAITING = ['ready', 'running', 'review'];
 /** Cards shown per column before "Show all". */
 const COLUMN_LIMIT = 12;
+
+/**
+ * Tasks arrive newest first. Queues read better oldest first (the next one to
+ * start is on top), and running tasks longest-running first.
+ */
+function ordered(status: string, items: KanbanTask[]): KanbanTask[] {
+  if (['triage', 'todo', 'scheduled', 'ready'].includes(status)) return [...items].reverse();
+  if (status === 'running')
+    return [...items].sort((a, b) => Number(a.started_at ?? 0) - Number(b.started_at ?? 0));
+  return items;
+}
 
 function cardTime(task: KanbanTask): string {
   if (task.status === 'running' && task.started_at !== undefined)
@@ -87,9 +98,9 @@ function NewTaskDialog({
         <label className="field-label" htmlFor="sv-task-assignee">
           Assign to
         </label>
-        <select
+        <Select
           id="sv-task-assignee"
-          className="sv-input"
+          className="block"
           value={assignee}
           onChange={(e) => setAssignee(e.target.value)}
         >
@@ -99,7 +110,7 @@ function NewTaskDialog({
               {profile.name}
             </option>
           ))}
-        </select>
+        </Select>
         <p className="muted-copy">
           {assignee
             ? `${assignee} starts this task in its own workspace as soon as its gateway is running.`
@@ -177,35 +188,38 @@ export function BoardTab({
     <div className="sv-board-view">
       <div className="sv-toolbar">
         <div className="sv-toolbar-summary" aria-label="Board summary">
-          <strong>{count('running')}</strong> running
-          <span aria-hidden="true">·</span>
-          <strong>{count('ready') + count('todo')}</strong> waiting
-          <span aria-hidden="true">·</span>
-          <strong>{count('blocked')}</strong> blocked
-          <span aria-hidden="true">·</span>
-          <strong>{count('done')}</strong> done
+          {!board.loaded ? (
+            // Counts are unknown until the first read: say so instead of zero.
+            <span role="status">{board.error ? 'Board unavailable' : 'Reading the board…'}</span>
+          ) : (
+            <>
+              <strong>{count('running')}</strong> running
+              <span aria-hidden="true">·</span>
+              <strong>{count('ready') + count('todo')}</strong> waiting
+              <span aria-hidden="true">·</span>
+              <strong>{count('blocked')}</strong> blocked
+              <span aria-hidden="true">·</span>
+              <strong>{count('done')}</strong> done
+              {board.truncated && <span className="small-tag">Newest {tasks.length} shown</span>}
+            </>
+          )}
         </div>
         {board.boards.length > 1 && (
           <label className="sv-inline-field">
             Board
-            <select
-              className="sv-select"
-              value={board.active ?? ''}
-              onChange={(e) => board.choose(e.target.value)}
-            >
+            <Select value={board.active ?? ''} onChange={(e) => board.choose(e.target.value)}>
               {board.boards.map((entry) => (
                 <option key={entry.slug} value={entry.slug}>
                   {entry.name ?? entry.slug}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
         {assignees.length > 1 && (
           <label className="sv-inline-field">
             Agent
-            <select
-              className="sv-select"
+            <Select
               aria-label="Filter by agent"
               value={filter}
               onChange={(e) => setAgent(e.target.value)}
@@ -216,7 +230,7 @@ export function BoardTab({
                   {name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
         <label className="sv-check">
@@ -250,7 +264,7 @@ export function BoardTab({
         </GatewayNotice>
       ))}
 
-      {board.loaded && tasks.length === 0 ? (
+      {!board.loaded ? null : tasks.length === 0 ? (
         <section className="settings-card">
           <Empty icon={ClipboardList} title="No tasks on this board yet">
             Ask the supervisor for something in Chat and its tasks appear here, or create one
@@ -261,7 +275,10 @@ export function BoardTab({
         <div className="sv-board" role="list" aria-label="Kanban board">
           {columns.map((status) => {
             const meta = statusMeta(status);
-            const items = tasks.filter((task) => (task.status ?? 'unknown') === status);
+            const items = ordered(
+              status,
+              tasks.filter((task) => (task.status ?? 'unknown') === status),
+            );
             // Long finished columns start short; the rest is one click away.
             const capped = !expanded.includes(status) && items.length > COLUMN_LIMIT;
             const shown = capped ? items.slice(0, COLUMN_LIMIT) : items;

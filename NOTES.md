@@ -718,3 +718,27 @@ bring-your-own-keys) in the in-app terminal for an isolated profile.
   `live` mode is strictly read-only instead.
 - GitHub rate-limited this machine during native runs (HTTP 403), which fails the
   OpenShell update check; `SHELLGUARDIAN_SMOKE_SKIP_UPDATE=1` skips only that step.
+
+## Stop only detached; audit of the redesign (2026-11-18)
+
+- `hermes chat -Q --format stream-json` handles SIGINT by printing "Detached; accepted
+  work continues at the gateway." and exiting 130. The turn keeps running, and the next
+  `--resume` queues behind it. A live test showed a follow-up waiting about two minutes.
+  The stub test had encoded an interrupt behaviour real Hermes does not have.
+- The gateway's `session.interrupt` needs `session:control` (the interactive ticket has
+  it), the session to exist, and the current `execution_generation`. A fresh connection
+  can read that from `session.events.since`: without the stream's `replay_epoch` it
+  returns no events but does return `replay_epoch` and `latest_seq`; a second call with
+  the epoch and a recent sequence returns event params carrying `execution_generation`.
+  With that, Stop took about 0.7 s end to end and the follow-up answered in 6 s.
+- An interrupted or unsettled result reports every token count as 0; treat that as
+  unknown. A result with a failing exit code and its own text (a step limit) is a reply.
+- Audit findings fixed in the same pass: the time limit killed the viewer and lost the
+  session; the board never loaded after an in-app install; "0 running" showed while the
+  board was loading or failed; the task list kept the oldest 500 rows; a quiet refetch
+  could leave Refresh spinning; `supervisor.css` loaded before `styles.css`, so some
+  overrides were dead; selects rendered as grey GTK controls in WebKit; small text used
+  a colour below 4.5:1 contrast; a session preview with a control character shifted the
+  table columns.
+- Running the audit (18 agents, about 1.4M tokens) took the owner's Claude session
+  usage from 35% to 95%. Keep reviewer fan-outs small on this account.

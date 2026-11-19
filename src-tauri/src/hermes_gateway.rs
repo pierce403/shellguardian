@@ -183,34 +183,38 @@ fn rpc_error(error: &Value, redact: Option<&str>) -> String {
     format!("Hermes refused the request: {}", bounded(&message, 300))
 }
 
-/// Opens one connection, waits for `gateway.ready`, sends `method`, and
-/// returns its `result`. Server-to-client requests are declined, events are
-/// ignored, and frames arrive in any order.
-async fn rpc_once(
-    attach: Attach,
-    method: &'static str,
-    params: Value,
-    redact: Option<&str>,
-) -> Result<Value, String> {
-    let mut request = attach
-        .url
-        .as_str()
-        .into_client_request()
-        .map_err(|_| "The Hermes gateway address is not valid.".to_string())?;
-    let protocols = HeaderValue::from_str(&format!(
-        "{WIRE_PROTOCOL}, {TICKET_PROTOCOL_PREFIX}{}",
-        attach.ticket
-    ))
-    .map_err(|_| "The Hermes gateway ticket is not valid.".to_string())?;
-    drop(attach.ticket);
-    request
-        .headers_mut()
-        .insert("Sec-WebSocket-Protocol", protocols);
-    let mut config = WebSocketConfig::default();
-    config.max_message_size = Some(FRAME_LIMIT);
-    config.max_frame_size = Some(FRAME_LIMIT);
-    let session = async {
-        let (mut socket, response) =
+type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// One ticketed gateway connection. Calls are made one at a time; events are
+/// ignored and server-to-client requests are declined.
+struct Connection {
+    socket: Socket,
+    next_id: u64,
+}
+
+impl Connection {
+    /// Dials the gateway with the ticket as a subprotocol and waits for
+    /// `gateway.ready`. Consumes the ticket: it is single-use.
+    async fn open(attach: Attach) -> Result<Self, String> {
+        let mut request = attach
+            .url
+            .as_str()
+            .into_client_request()
+            .map_err(|_| "The Hermes gateway address is not valid.".to_string())?;
+        let protocols = HeaderValue::from_str(&format!(
+            "{WIRE_PROTOCOL}, {TICKET_PROTOCOL_PREFIX}{}",
+            attach.ticket
+        ))
+        .map_err(|_| "The Hermes gateway ticket is not valid.".to_string())?;
+        drop(attach.ticket);
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", protocols);
+        let mut config = WebSocketConfig::default();
+        config.max_message_size = Some(FRAME_LIMIT);
+        config.max_frame_size = Some(FRAME_LIMIT);
+        let (socket, response) =
             tokio_tungstenite::connect_async_with_config(request, Some(config), false)
                 .await
                 .map_err(|_| "Could not connect to the Hermes gateway.".to_string())?;
@@ -221,18 +225,17 @@ async fn rpc_once(
         if negotiated != Some(WIRE_PROTOCOL) {
             return Err("The Hermes gateway spoke an unexpected protocol.".to_string());
         }
-        let mut ready = false;
-        let mut sent = false;
+        let mut connection = Self { socket, next_id: 0 };
+        // The server speaks first.
+        while connection.next_frame().await?.0 != Frame::Ready {}
+        Ok(connection)
+    }
+
+    /// Reads one JSON frame and says what it is. Server requests are declined
+    /// here; other frame kinds are left to the caller.
+    async fn next_frame(&mut self) -> Result<(Frame, Value), String> {
         loop {
-            if ready && !sent {
-                let frame = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-                socket
-                    .send(Message::text(frame.to_string()))
-                    .await
-                    .map_err(|_| "The Hermes gateway connection closed.".to_string())?;
-                sent = true;
-            }
-            let Some(message) = socket.next().await else {
+            let Some(message) = self.socket.next().await else {
                 return Err("The Hermes gateway connection closed.".to_string());
             };
             let text =
@@ -246,23 +249,59 @@ async fn rpc_once(
             let Ok(frame) = serde_json::from_str::<Value>(text.as_str()) else {
                 continue;
             };
-            match classify(&frame) {
-                Frame::Ready => ready = true,
-                Frame::ServerRequest(id) => {
-                    let decline = json!({"jsonrpc": "2.0", "id": id,
-                        "error": {"code": -32601, "message": "unsupported"}});
-                    let _ = socket.send(Message::text(decline.to_string())).await;
+            let kind = classify(&frame);
+            if let Frame::ServerRequest(id) = &kind {
+                let decline = json!({"jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32601, "message": "unsupported"}});
+                let _ = self.socket.send(Message::text(decline.to_string())).await;
+            }
+            return Ok((kind, frame));
+        }
+    }
+
+    /// Sends one fixed method and returns its `result`. Events and replies to
+    /// other requests that arrive meanwhile are ignored.
+    async fn call(
+        &mut self,
+        method: &'static str,
+        params: Value,
+        redact: Option<&str>,
+    ) -> Result<Value, String> {
+        self.next_id += 1;
+        let request =
+            json!({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params});
+        self.socket
+            .send(Message::text(request.to_string()))
+            .await
+            .map_err(|_| "The Hermes gateway connection closed.".to_string())?;
+        loop {
+            let (kind, frame) = self.next_frame().await?;
+            if kind == Frame::Response(self.next_id) {
+                if let Some(error) = frame.get("error") {
+                    return Err(rpc_error(error, redact));
                 }
-                Frame::Response if sent => {
-                    let _ = socket.close(None).await;
-                    if let Some(error) = frame.get("error") {
-                        return Err(rpc_error(error, redact));
-                    }
-                    return Ok(frame.get("result").cloned().unwrap_or(Value::Null));
-                }
-                _ => {}
+                return Ok(frame.get("result").cloned().unwrap_or(Value::Null));
             }
         }
+    }
+
+    async fn close(mut self) {
+        let _ = self.socket.close(None).await;
+    }
+}
+
+/// Opens one connection, makes one call, and closes.
+async fn rpc_once(
+    attach: Attach,
+    method: &'static str,
+    params: Value,
+    redact: Option<&str>,
+) -> Result<Value, String> {
+    let session = async {
+        let mut connection = Connection::open(attach).await?;
+        let result = connection.call(method, params, redact).await;
+        connection.close().await;
+        result
     };
     tokio::time::timeout(RPC_TIMEOUT, session)
         .await
@@ -273,8 +312,8 @@ async fn rpc_once(
 enum Frame {
     Ready,
     ServerRequest(String),
-    /// The reply to our single request (id 1).
-    Response,
+    /// A reply to one of our requests, by id.
+    Response(u64),
     Other,
 }
 
@@ -289,11 +328,93 @@ fn classify(frame: &Value) -> Frame {
         Some(Value::String(id)) if frame.get("method").is_some() && id.starts_with("srq-") => {
             Frame::ServerRequest(id.clone())
         }
-        Some(Value::Number(n)) if n.as_u64() == Some(1) && frame.get("method").is_none() => {
-            Frame::Response
+        Some(Value::Number(n)) if frame.get("method").is_none() => {
+            n.as_u64().map_or(Frame::Other, Frame::Response)
         }
         _ => Frame::Other,
     }
+}
+
+// ---- Stopping a running turn ----
+
+/// How many of the newest events are read to learn the running generation.
+const INTERRUPT_EVENT_WINDOW: u64 = 12;
+const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// The execution generation stamped on a session's most recent events.
+fn latest_generation(events: &Value) -> Option<u64> {
+    rows(events.get("events"))
+        .filter_map(|event| event.get("execution_generation").and_then(Value::as_u64))
+        .last()
+}
+
+/// Interrupts a session's running turn at the gateway. The chat CLI only
+/// detaches when signalled, so this is what actually stops the agent.
+///
+/// The gateway requires the turn's execution generation, which its event
+/// stream carries: the first read learns the stream's epoch and latest
+/// sequence, the second reads the newest events. Returns whether the gateway
+/// accepted an interrupt for the current generation.
+async fn interrupt_with(attach: Attach, session_id: &str) -> Result<bool, String> {
+    let session = async {
+        let mut connection = Connection::open(attach).await?;
+        let outcome = async {
+            let head = connection
+                .call(
+                    "session.events.since",
+                    json!({"session_id": session_id, "last_sequence": 0}),
+                    None,
+                )
+                .await?;
+            let mut generation = latest_generation(&head);
+            if generation.is_none() {
+                let latest = head.get("latest_seq").and_then(Value::as_u64).unwrap_or(0);
+                let Some(epoch) = head.get("replay_epoch").and_then(Value::as_str) else {
+                    return Ok(false);
+                };
+                let tail = connection
+                    .call(
+                        "session.events.since",
+                        json!({
+                            "session_id": session_id,
+                            "replay_epoch": epoch,
+                            "last_sequence": latest.saturating_sub(INTERRUPT_EVENT_WINDOW),
+                        }),
+                        None,
+                    )
+                    .await?;
+                generation = latest_generation(&tail);
+            }
+            let Some(generation) = generation else {
+                return Ok(false);
+            };
+            connection
+                .call(
+                    "session.interrupt",
+                    json!({"session_id": session_id, "execution_generation": generation}),
+                    None,
+                )
+                .await
+                .map(|_| true)
+        }
+        .await;
+        connection.close().await;
+        outcome
+    };
+    tokio::time::timeout(INTERRUPT_TIMEOUT, session)
+        .await
+        .map_err(|_| "The Hermes gateway did not answer in time.".to_string())?
+}
+
+/// Interrupts `session_id`'s running turn for `profile`. Never starts a gateway.
+pub(crate) async fn interrupt_session(profile: &str, session_id: &str) -> Result<bool, String> {
+    require_profile_name(profile)?;
+    if !valid_session_id(session_id) {
+        return Err("That session ID is not valid.".into());
+    }
+    let binary = hermes_path().ok_or("Hermes is not installed on this machine.")?;
+    let attach = attach_ready(&binary, profile).await?;
+    interrupt_with(attach, session_id).await
 }
 
 async fn call(profile: &str, method: &'static str, params: Value) -> Result<Value, String> {
@@ -731,10 +852,14 @@ mod tests {
         );
         assert_eq!(
             classify(&json!({"jsonrpc":"2.0","id":1,"result":{}})),
-            Frame::Response
+            Frame::Response(1)
         );
         assert_eq!(
-            classify(&json!({"jsonrpc":"2.0","id":2,"result":{}})),
+            classify(&json!({"jsonrpc":"2.0","id":2,"error":{}})),
+            Frame::Response(2)
+        );
+        assert_eq!(
+            classify(&json!({"jsonrpc":"2.0","id":"x","result":{}})),
             Frame::Other
         );
         assert_eq!(
@@ -918,6 +1043,124 @@ mod tests {
         assert!(!error.contains("sk-test"));
         assert!(error.len() < 400);
         server.await.unwrap();
+    }
+
+    /// A fake gateway that answers a fixed list of requests in order and
+    /// returns the requests it received.
+    async fn scripted_gateway(
+        replies: Vec<Value>,
+    ) -> (String, tokio::task::JoinHandle<Vec<Value>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/api/ws", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            #[allow(clippy::result_large_err)]
+            let mut socket =
+                tokio_tungstenite::accept_hdr_async(stream, |_: &Request, mut res: Response| {
+                    res.headers_mut().insert(
+                        "Sec-WebSocket-Protocol",
+                        HeaderValue::from_static(WIRE_PROTOCOL),
+                    );
+                    Ok(res)
+                })
+                .await
+                .unwrap();
+            let ready = json!({"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{}}});
+            socket.send(Message::text(ready.to_string())).await.unwrap();
+            let mut seen = Vec::new();
+            for mut reply in replies {
+                let request: Value = loop {
+                    match socket.next().await {
+                        Some(Ok(Message::Text(text))) => {
+                            break serde_json::from_str(text.as_str()).unwrap()
+                        }
+                        Some(Ok(_)) => continue,
+                        _ => return seen,
+                    }
+                };
+                reply["jsonrpc"] = json!("2.0");
+                reply["id"] = request["id"].clone();
+                seen.push(request);
+                // An unrelated event between request and reply must be ignored.
+                let noise =
+                    json!({"jsonrpc":"2.0","method":"event","params":{"type":"sessions.changed"}});
+                socket.send(Message::text(noise.to_string())).await.unwrap();
+                socket.send(Message::text(reply.to_string())).await.unwrap();
+            }
+            let _ = socket.next().await;
+            seen
+        });
+        (url, handle)
+    }
+
+    fn ticket(url: String) -> Attach {
+        Attach {
+            url,
+            ticket: "TICKET0123456789abcd".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn interrupt_reads_the_running_generation_then_stops_that_turn() {
+        // The first read has no epoch, so the gateway returns only the stream's
+        // position; the second reads the newest events.
+        let (url, server) = scripted_gateway(vec![
+            json!({"result": {"events": [], "replay_epoch": "e1", "latest_seq": 40, "snapshot_required": true}}),
+            json!({"result": {"events": [
+                {"seq": 39, "type": "message.delta", "execution_generation": 6},
+                {"seq": 40, "type": "tool.start", "execution_generation": 7},
+            ]}}),
+            json!({"result": {"execution_state": "idle", "execution_generation": 7}}),
+        ])
+        .await;
+        assert_eq!(interrupt_with(ticket(url), "local-abc").await, Ok(true));
+        let seen = server.await.unwrap();
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[0]["method"], "session.events.since");
+        assert_eq!(
+            seen[0]["params"],
+            json!({"session_id": "local-abc", "last_sequence": 0})
+        );
+        assert_eq!(
+            seen[1]["params"],
+            json!({"session_id": "local-abc", "replay_epoch": "e1", "last_sequence": 28})
+        );
+        assert_eq!(seen[2]["method"], "session.interrupt");
+        assert_eq!(
+            seen[2]["params"],
+            json!({"session_id": "local-abc", "execution_generation": 7})
+        );
+        assert_eq!(
+            [&seen[0]["id"], &seen[1]["id"], &seen[2]["id"]],
+            [&json!(1), &json!(2), &json!(3)]
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupt_is_not_confirmed_without_a_generation_or_when_refused() {
+        // Nothing says which turn is running: no interrupt is sent, and it is not confirmed.
+        let (url, server) = scripted_gateway(vec![
+            json!({"result": {"events": [], "replay_epoch": "e1", "latest_seq": 0}}),
+            json!({"result": {"events": []}}),
+        ])
+        .await;
+        assert_eq!(interrupt_with(ticket(url), "local-abc").await, Ok(false));
+        let seen = server.await.unwrap();
+        assert!(seen.iter().all(|r| r["method"] == "session.events.since"));
+
+        // The first read can already carry events; the gateway may still refuse.
+        let (url, server) = scripted_gateway(vec![
+            json!({"result": {"events": [{"seq": 2, "execution_generation": 3}]}}),
+            json!({"error": {"code": 4001, "message": "stale_generation"}}),
+        ])
+        .await;
+        let refused = interrupt_with(ticket(url), "local-abc").await;
+        assert_eq!(
+            refused,
+            Err("Hermes refused the request: stale_generation".to_string())
+        );
+        let seen = server.await.unwrap();
+        assert_eq!(seen[1]["params"]["execution_generation"], 3);
     }
 
     /// Short description of a projected value for live-test output: keys with

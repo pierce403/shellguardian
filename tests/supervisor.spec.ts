@@ -57,6 +57,12 @@ test('sample chat streams progress, keeps drafts, and can be stopped', async ({ 
   await chat.getByRole('button', { name: 'New conversation' }).click();
   await expect(chat.getByText('How are my agents?')).toHaveCount(0);
   await expect(chat.getByText('Ask guanyu for work')).toBeVisible();
+
+  // An unsent draft survives a visit to another tab.
+  await box.fill('half-written thought');
+  await tab(page, 'Board');
+  await tab(page, 'Chat');
+  await expect(page.getByLabel('Message guanyu')).toHaveValue('half-written thought');
 });
 
 test('a chat request becomes a task you can follow from start to finish', async ({ page }) => {
@@ -335,6 +341,8 @@ test('browser mode does not probe Hermes', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 type Bridge = {
+  tasksDelay?: number;
+  tasksError?: string | null;
   /** Profiles `discover_hermes` reports; null means Hermes is not installed. */
   profiles:
     { name: string; model: string | null; gateway: string; provider: string | null }[] | null;
@@ -348,6 +356,10 @@ async function mockDesktop(page: Page, bridge: Bridge) {
       profiles: initial.profiles,
       revision: 'r1',
       tasks: [] as Record<string, unknown>[],
+      truncated: false,
+      /** Delay before the task list answers, or a failure message. */
+      tasksDelay: initial.tasksDelay ?? 0,
+      tasksError: initial.tasksError ?? null,
       gatewayUp: false,
       chat: null as null | { text: string; steps: unknown[]; started: number },
     };
@@ -377,6 +389,34 @@ async function mockDesktop(page: Page, bridge: Bridge) {
             case 'hermes_chat': {
               const message = String(args.message);
               if (message === 'fail') throw 'Hermes reported an error: Invalid API key';
+              const base = {
+                sessionId: 's_1',
+                model: 'x/y',
+                tokens: null,
+                durationMs: 3000,
+                steps: [],
+                stopped: false,
+                timedOut: false,
+                stopConfirmed: false,
+                incomplete: false,
+              };
+              // A turn that ended early without Hermes confirming it stopped.
+              if (message === 'detached')
+                return { ...base, reply: 'Half an answer', stopped: true };
+              if (message === 'slow')
+                return {
+                  ...base,
+                  reply: 'So far',
+                  stopped: true,
+                  timedOut: true,
+                  stopConfirmed: true,
+                };
+              if (message === 'limit')
+                return {
+                  ...base,
+                  reply: '3. third\n\nA note in between.\n\n4. fourth',
+                  incomplete: true,
+                };
               state.chat = { text: '', steps: [], started: Date.now() };
               await wait(150);
               state.chat.steps = [
@@ -399,6 +439,9 @@ async function mockDesktop(page: Page, bridge: Bridge) {
                 durationMs: 2400,
                 steps,
                 stopped: false,
+                timedOut: false,
+                stopConfirmed: false,
+                incomplete: false,
               };
             }
             case 'hermes_chat_progress':
@@ -428,7 +471,9 @@ async function mockDesktop(page: Page, bridge: Bridge) {
             case 'hermes_kanban_revision':
               return state.revision;
             case 'hermes_kanban_tasks':
-              return state.tasks;
+              if (state.tasksDelay) await wait(state.tasksDelay);
+              if (state.tasksError) throw state.tasksError;
+              return { tasks: state.tasks, truncated: state.truncated };
             case 'hermes_kanban_task':
               return {
                 comments: [],
@@ -542,6 +587,68 @@ test('desktop chat shows live steps, renders replies safely, and resumes the ses
   expect(await calls(page, 'start_hermes_gateway')).toEqual([]);
 });
 
+test('desktop chat says honestly how a turn ended', async ({ page }) => {
+  await mockDesktop(page, { profiles: GUANYU });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  const chat = page.getByRole('region', { name: 'Supervisor chat' });
+  const box = chat.getByLabel('Message guanyu');
+  const last = () => chat.locator('.sv-msg.agent').last();
+
+  // The view detached but Hermes did not confirm the turn stopped: no claim that it did.
+  await box.fill('detached');
+  await box.press('Enter');
+  await expect(last()).toContainText('Half an answer');
+  await expect(last()).toContainText('stopped watching');
+  await expect(last()).toContainText('Hermes did not confirm that guanyu stopped');
+  await expect(last()).not.toContainText('stopped by you');
+  // Unknown usage is not shown as zero.
+  await expect(chat).not.toContainText('0 tokens');
+  await expect(chat).toContainText('Enter to send');
+
+  await box.fill('slow');
+  await box.press('Enter');
+  await expect(last()).toContainText('stopped at the time limit');
+  await expect(last()).not.toContainText('did not confirm');
+
+  // A reply that hit Hermes's step limit is still a reply, with a note.
+  await box.fill('limit');
+  await box.press('Enter');
+  await expect(last()).toContainText('Hermes ended this turn before guanyu finished');
+  await expect(chat.getByRole('alert')).toHaveCount(0);
+  // A numbered list that resumes after a paragraph keeps its numbers.
+  await expect(last().locator('.md ol').nth(0)).toHaveAttribute('start', '3');
+  await expect(last().locator('.md ol').nth(1)).toHaveAttribute('start', '4');
+});
+
+test('desktop board never shows counts it has not read', async ({ page }) => {
+  await mockDesktop(page, { profiles: GUANYU, tasksDelay: 2500 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  // While the first read is in flight nothing claims the board is empty or idle.
+  const work = page.getByRole('region', { name: 'Work in progress' });
+  await expect(work).toContainText('Checking the board');
+  await expect(work).not.toContainText('Nothing is running');
+  await tab(page, 'Board');
+  await expect(page.getByLabel('Board summary')).toContainText('Reading the board');
+  await expect(page.getByLabel('Board summary')).not.toContainText('running');
+  await expect(page.getByText('No tasks on this board yet')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByLabel('Board summary')).toContainText('0 running');
+});
+
+test('desktop board failure is reported, not shown as an empty board', async ({ page }) => {
+  await mockDesktop(page, { profiles: GUANYU, tasksError: 'Hermes kanban: database is locked' });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  const work = page.getByRole('region', { name: 'Work in progress' });
+  await expect(work.getByRole('alert')).toContainText('database is locked');
+  await expect(work).not.toContainText('Nothing is running');
+  await tab(page, 'Board');
+  await expect(page.getByLabel('Board summary')).toContainText('Board unavailable');
+  await expect(page.getByText('No tasks on this board yet')).toHaveCount(0);
+  await expect(page.getByRole('tabpanel').getByRole('alert')).toContainText('database is locked');
+});
+
 test('desktop board refetches tasks only when the change signal moves', async ({ page }) => {
   await mockDesktop(page, { profiles: GUANYU });
   await page.goto('/');
@@ -582,7 +689,9 @@ test('desktop board filters by agent, caps long columns, and folds check-ins', a
   });
   await page.goto('/');
   await page.evaluate(() => {
-    const bridge = (window as unknown as { __bridge: { tasks: unknown[] } }).__bridge;
+    const bridge = (window as unknown as { __bridge: { tasks: unknown[]; truncated: boolean } })
+      .__bridge;
+    bridge.truncated = true;
     bridge.tasks = [
       ...Array.from({ length: 15 }, (_, n) => ({
         id: `t_done${n}`,
@@ -613,6 +722,8 @@ test('desktop board filters by agent, caps long columns, and folds check-ins', a
   const board = page.getByRole('list', { name: 'Kanban board' });
   const done = board.getByRole('listitem', { name: 'Done tasks' });
   await expect(done.getByRole('button', { name: /Finished job/ })).toHaveCount(12);
+  // The board says when Hermes holds more tasks than are shown.
+  await expect(page.getByLabel('Board summary')).toContainText('Newest 16 shown');
   await done.getByRole('button', { name: 'Show all 15' }).click();
   await expect(done.getByRole('button', { name: /Finished job/ })).toHaveCount(15);
 

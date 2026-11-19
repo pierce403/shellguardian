@@ -39,8 +39,14 @@ focused milestones. Do not disturb existing agents to test the application.
   one allowlisted argument for a few known tools (a task title or ID, a skill
   name), timings, and token counts may reach the webview. Tool inputs and outputs
   otherwise stay native and are never logged. The chat child runs in its own
-  process group so Stop can interrupt it and a timeout can kill it; the Hermes
-  gateway detaches into its own session and must never be signalled by this.
+  process group; the Hermes gateway detaches into its own session and must never
+  be signalled by this.
+- The chat CLI is only a viewer of a turn that runs in the gateway: signalling it
+  detaches it and the agent keeps working. Stop (and the time limit) therefore
+  detaches the viewer and then sends the gateway `session.interrupt` for that
+  session and its current execution generation (read from `session.events.since`).
+  Report a turn as stopped only when the gateway accepted the interrupt; otherwise
+  say that ShellGuardian stopped watching and Hermes may still be working.
 - By the owner's decision (2026-11-18), ShellGuardian may install Hermes with its
   official, unsigned `https://hermes-agent.nousresearch.com/install.sh`: download
   over HTTPS without redirects, cap its size, stage it owner-only, show the user

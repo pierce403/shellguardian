@@ -282,7 +282,9 @@ The gateway test needs a running gateway and never starts one. The chat test sen
 tiny messages and spends a little inference on that profile's provider.
 
 `SHELLGUARDIAN_SMOKE_HERMES=live` makes the native smoke walk every Supervisor tab
-against the real Hermes, strictly read-only, and save `test-results/native-supervisor-live-*.png`.
+against the real Hermes, strictly read-only, and save `native-supervisor-live-*.png` under
+`.cache/native-smoke` (or `SHELLGUARDIAN_SMOKE_EVIDENCE`), outside the `test-results`
+directory that every Playwright run clears.
 `SHELLGUARDIAN_SMOKE_SKIP_UPDATE=1` skips only the OpenShell update check, for when
 GitHub rate-limits the machine. The older `absent` and `detected` modes assume Hermes
 is not installed in `~/.local/bin`.

@@ -20,6 +20,7 @@ import type {
   KanbanBoard,
   KanbanTask,
   KanbanTaskDetail,
+  KanbanTaskList,
   SupervisorPreparation,
 } from './types';
 
@@ -302,6 +303,8 @@ type SampleTurn = {
   stop: boolean;
   createsTask: boolean;
   reply: string;
+  /** How long the sample turn takes. */
+  duration: number;
 };
 const SAMPLE_TURN_MS = 900;
 let sampleTurn: SampleTurn | null = null;
@@ -329,7 +332,7 @@ function sampleSteps(turn: SampleTurn, elapsed: number, finished = false): ChatS
 }
 function sampleText(turn: SampleTurn, elapsed: number): string {
   if (elapsed < 450) return '';
-  const share = Math.min(1, (elapsed - 450) / (SAMPLE_TURN_MS - 450));
+  const share = Math.min(1, (elapsed - 450) / (turn.duration - 450));
   return turn.reply.slice(0, Math.max(1, Math.floor(turn.reply.length * share)));
 }
 
@@ -403,9 +406,11 @@ export async function hermesChat(
       reply: createsTask
         ? `Sample preview: created a task for ${profile}. No Hermes agent was contacted.`
         : `Sample preview reply ${sampleTurnCount}. No Hermes agent was contacted.`,
+      // A request for a story takes longer, so there is time to stop it.
+      duration: /\bstory\b/i.test(message) ? 5000 : SAMPLE_TURN_MS,
     };
     sampleTurn = turn;
-    while (!turn.stop && Date.now() - turn.started < SAMPLE_TURN_MS) await pause(40);
+    while (!turn.stop && Date.now() - turn.started < turn.duration) await pause(40);
     const elapsed = Date.now() - turn.started;
     sampleTurn = null;
     const session = sessionId ?? 'sample_session';
@@ -418,6 +423,9 @@ export async function hermesChat(
         durationMs: elapsed,
         steps: sampleSteps(turn, elapsed),
         stopped: true,
+        timedOut: false,
+        stopConfirmed: true,
+        incomplete: false,
       };
     if (createsTask)
       addSampleTask({
@@ -436,6 +444,9 @@ export async function hermesChat(
       durationMs: elapsed,
       steps: sampleSteps(turn, elapsed, true),
       stopped: false,
+      timedOut: false,
+      stopConfirmed: false,
+      incomplete: false,
     };
   }
   return invoke('hermes_chat', { profile, message, sessionId });
@@ -667,10 +678,10 @@ export async function kanbanRevision(board: string): Promise<string> {
   requireDesktop();
   return invoke('hermes_kanban_revision', { board });
 }
-export async function kanbanTasks(board: string, archived = false): Promise<KanbanTask[]> {
+export async function kanbanTasks(board: string, archived = false): Promise<KanbanTaskList> {
   if (previewMode) {
     advanceSampleTasks();
-    return sampleTasks
+    const tasks: KanbanTask[] = sampleTasks
       .filter((task) => archived || !task.archived)
       .map((task) => {
         const {
@@ -683,6 +694,8 @@ export async function kanbanTasks(board: string, archived = false): Promise<Kanb
         } = publicTask(task);
         return summary;
       });
+    // Newest first, as the desktop app asks Hermes for them.
+    return { tasks: tasks.reverse(), truncated: false };
   }
   requireDesktop();
   return invoke('hermes_kanban_tasks', { board, archived });

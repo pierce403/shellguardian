@@ -1,6 +1,6 @@
 // Agents (Hermes profiles): who they are, which model they use, and what
 // they are allowed to do as a supervisor.
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   Bot,
   ClipboardCheck,
@@ -13,7 +13,7 @@ import {
 import * as api from '../api';
 import type { HermesModelOptions, HermesProviderOption } from '../types';
 import { gatewayDown, useLoad } from './hooks';
-import { GatewayNotice, RefreshButton, UsageMeters } from './parts';
+import { GatewayNotice, RefreshButton, Select, UsageMeters } from './parts';
 import { DEFAULT_SUPERVISOR, type Hermes } from './useHermes';
 
 const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -26,16 +26,19 @@ function providerNote(provider: HermesProviderOption): string {
 /** Choose an agent's provider and model through Hermes's own validated assignment. */
 export function ProviderPanel({
   profile,
+  gatewayRunning,
   onChanged,
   onSignIn,
 }: {
   profile: string;
+  /** Reloads the list when the agent's gateway comes up. */
+  gatewayRunning: boolean;
   onChanged: () => void;
   onSignIn: (profile: string) => void;
 }) {
   const options = useLoad<HermesModelOptions>(
     () => api.hermesModelOptions(profile, true),
-    [profile],
+    [profile, gatewayRunning],
   );
   const [provider, setProvider] = useState('');
   const [model, setModel] = useState('');
@@ -46,10 +49,14 @@ export function ProviderPanel({
   const [confirm, setConfirm] = useState<string | null>(null);
 
   const current = options.data;
+  // Start from the agent's current choice, once. Later reloads must not put
+  // the old model back after the user has picked another provider.
+  const seeded = useRef(false);
   useEffect(() => {
-    if (!current) return;
-    setProvider((value) => value || current.provider || '');
-    setModel((value) => value || current.model || '');
+    if (!current || seeded.current) return;
+    seeded.current = true;
+    setProvider(current.provider ?? '');
+    setModel(current.model ?? '');
   }, [current]);
 
   const providers = current?.providers ?? [];
@@ -148,9 +155,9 @@ export function ProviderPanel({
               <label className="field-label" htmlFor={`sv-provider-${profile}`}>
                 Provider
               </label>
-              <select
+              <Select
                 id={`sv-provider-${profile}`}
-                className="sv-input"
+                className="block"
                 value={provider}
                 onChange={(e) => {
                   setProvider(e.target.value);
@@ -178,15 +185,15 @@ export function ProviderPanel({
                     ))}
                   </optgroup>
                 )}
-              </select>
+              </Select>
             </div>
             <div className="sv-field">
               <label className="field-label" htmlFor={`sv-model-${profile}`}>
                 Model
               </label>
-              <select
+              <Select
                 id={`sv-model-${profile}`}
-                className="sv-input"
+                className="block"
                 value={model}
                 disabled={!chosen || chosen.models.length === 0}
                 onChange={(e) => {
@@ -207,7 +214,7 @@ export function ProviderPanel({
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
 
@@ -498,6 +505,7 @@ export function AgentsTab({
           <ProviderPanel
             key={supervisor.name}
             profile={supervisor.name}
+            gatewayRunning={supervisor.gateway === 'running'}
             onChanged={() => void hermes.refresh()}
             onSignIn={onSignIn}
           />

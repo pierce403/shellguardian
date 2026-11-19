@@ -1,5 +1,11 @@
 //! One supervisor chat turn through `hermes chat --format stream-json`, with
-//! live progress the webview can poll and a graceful stop.
+//! live progress the webview can poll and a real stop.
+//!
+//! The chat CLI is only a viewer: the turn itself runs in the Hermes gateway.
+//! Signalling the CLI makes it detach ("accepted work continues at the
+//! gateway") and report the session. Stopping a turn therefore takes two
+//! steps: detach the viewer, then interrupt that session at the gateway. A
+//! stop is only reported as confirmed when the gateway accepted the interrupt.
 //!
 //! Hermes writes one JSON event per line: `system` (init), `text` deltas,
 //! `tool_use`, `tool_result`, and a final `result`. Only a fixed projection
@@ -23,8 +29,9 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, BufReader};
 
 /// One supervisor turn may run tools; bound it generously.
 const CHAT_TIMEOUT: Duration = Duration::from_secs(600);
-/// After a stop request Hermes gets this long to wind down before it is killed.
-const STOP_GRACE: Duration = Duration::from_secs(8);
+/// After it is asked to detach, the viewer gets this long to report the
+/// session before it is killed. Real Hermes answers in about a tenth of a second.
+const STOP_GRACE: Duration = Duration::from_secs(3);
 /// Upper bound on one supervisor message, in bytes.
 pub(crate) const MESSAGE_LIMIT: usize = 16 * 1024;
 /// Upper bound on one supervisor reply returned to the webview, in characters.
@@ -72,8 +79,35 @@ pub struct HermesReply {
     tokens: Option<ChatTokens>,
     duration_ms: Option<u64>,
     steps: Vec<ChatStep>,
-    /// True when the user stopped the turn; `reply` is whatever had arrived.
+    /// True when the turn was ended early, by the user or by the time limit;
+    /// `reply` is whatever had arrived.
     stopped: bool,
+    /// True when the time limit, not the user, ended the turn.
+    timed_out: bool,
+    /// True only when the gateway accepted an interrupt for the running turn.
+    /// False means the viewer detached but Hermes may still be working.
+    stop_confirmed: bool,
+    /// True when Hermes replied but reported that the turn did not complete,
+    /// for example because it reached its step limit.
+    incomplete: bool,
+}
+
+/// Interrupts a session's running turn at the gateway and reports whether the
+/// gateway accepted it. Injected so tests with stub scripts never dial a gateway.
+pub(crate) type Interrupter<'a> = &'a (dyn Fn(&str, &str) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+         + Sync);
+
+/// The real interrupter: `session.interrupt` through the gateway client.
+fn gateway_interrupt(
+    profile: &str,
+    session_id: &str,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> {
+    let (profile, session_id) = (profile.to_owned(), session_id.to_owned());
+    Box::pin(async move {
+        crate::hermes_gateway::interrupt_session(&profile, &session_id)
+            .await
+            .unwrap_or(false)
+    })
 }
 
 /// Live state of the running turn, for the webview to poll.
@@ -451,6 +485,7 @@ impl ChatTurns {
         message: &str,
         session_id: Option<&str>,
         timeout: Duration,
+        interrupt: Interrupter<'_>,
     ) -> Result<HermesReply, String> {
         require_profile_name(profile)?;
         let message = message.trim();
@@ -519,15 +554,18 @@ impl ChatTurns {
         });
 
         let deadline = tokio::time::Instant::now() + timeout;
-        let mut stop_deadline: Option<tokio::time::Instant> = None;
+        // A stop request or the time limit asks the viewer to detach (SIGINT).
+        // It then has a moment to report the session before it is killed.
+        let mut detach_deadline: Option<tokio::time::Instant> = None;
         // Once Hermes exits, lines still in the pipe get a moment to arrive. A
         // process it started may hold the pipe open, so end-of-file is not awaited.
         let mut drain_deadline: Option<tokio::time::Instant> = None;
         let mut stream = Stream::default();
+        let mut stopped = false;
         let mut timed_out = false;
         let mut force_kill = false;
         loop {
-            let wake = drain_deadline.or(stop_deadline).unwrap_or(deadline);
+            let wake = drain_deadline.or(detach_deadline).unwrap_or(deadline);
             tokio::select! {
                 line = next_line.recv() => match line {
                     Some(line) => {
@@ -543,21 +581,32 @@ impl ChatTurns {
                     drain_deadline =
                         Some(tokio::time::Instant::now() + Duration::from_millis(500));
                 }
-                changed = stop.changed(), if stop_deadline.is_none() => {
+                changed = stop.changed(), if detach_deadline.is_none() => {
                     if changed.is_ok() {
+                        stopped = true;
                         if let Some(group) = group {
                             signal_group(group, Signal::Interrupt);
                         }
-                        stop_deadline = Some(tokio::time::Instant::now() + STOP_GRACE);
+                        detach_deadline = Some(tokio::time::Instant::now() + STOP_GRACE);
                     }
                 }
                 () = tokio::time::sleep_until(wake) => {
-                    if drain_deadline.is_none() {
-                        // Still running past the stop grace or the turn limit.
-                        timed_out = stop_deadline.is_none();
-                        force_kill = true;
+                    if drain_deadline.is_some() {
+                        break;
                     }
-                    break;
+                    if detach_deadline.is_some() {
+                        // The viewer ignored the request to detach.
+                        force_kill = true;
+                        break;
+                    }
+                    // The time limit ends the turn the same way a stop does, so the
+                    // session and what had arrived are kept.
+                    timed_out = true;
+                    self.with_turn(|turn| turn.stopping = true);
+                    if let Some(group) = group {
+                        signal_group(group, Signal::Interrupt);
+                    }
+                    detach_deadline = Some(tokio::time::Instant::now() + STOP_GRACE);
                 }
             }
         }
@@ -587,7 +636,7 @@ impl ChatTurns {
             .map(|bytes| sanitize_text(&bytes, STDERR_LIMIT))
             .unwrap_or_default();
 
-        let (text, steps, started) = self
+        let (streamed, steps, started) = self
             .turn
             .lock()
             .ok()
@@ -596,35 +645,39 @@ impl ChatTurns {
                     .map(|turn| (turn.text.clone(), turn.steps.clone(), turn.started))
             })
             .unwrap_or_else(|| (String::new(), Vec::new(), Instant::now()));
-        if timed_out {
-            return Err(format!(
-                "The supervisor did not finish within {} minutes and was stopped.",
-                timeout.as_secs().div_ceil(60)
-            ));
-        }
-        let stopped = stop_deadline.is_some();
+        let ended_early = stopped || timed_out;
         let result = stream.result.as_ref();
-        let final_text = result
+        // The result's own text is authoritative; streamed deltas are a fallback.
+        let own_text = result
             .and_then(|result| result.get("text"))
             .and_then(Value::as_str)
             .map(|text| sanitize_text(text.as_bytes(), REPLY_LIMIT))
-            .filter(|text| !text.trim().is_empty())
-            .unwrap_or(text);
-        let failure = result.and_then(|result| {
-            let code = result.get("exit_code").and_then(Value::as_i64).unwrap_or(0);
-            let error = result.get("error").and_then(Value::as_str);
-            (code != 0 || error.is_some()).then(|| error.unwrap_or(&final_text).to_owned())
-        });
-        if !stopped {
-            if let Some(failure) = failure {
-                let detail = one_line(&failure, 400);
+            .filter(|text| !text.trim().is_empty());
+        let code = result
+            .and_then(|result| result.get("exit_code"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let error = result
+            .and_then(|result| result.get("error"))
+            .and_then(Value::as_str);
+        let mut incomplete = false;
+        if !ended_early {
+            if let Some(error) = error {
+                let detail = one_line(error, 400);
                 return Err(if detail.is_empty() {
                     "Hermes did not return a reply.".into()
                 } else {
                     format!("Hermes reported an error: {detail}")
                 });
             }
-            if result.is_none() || final_text.trim().is_empty() {
+            // A reply with a failing exit code (a step limit, a partial turn) is
+            // still the agent's answer: show it, marked incomplete.
+            incomplete = code != 0 && own_text.is_some();
+            let nothing = match code {
+                0 => own_text.is_none() && streamed.trim().is_empty(),
+                _ => own_text.is_none(),
+            };
+            if result.is_none() || nothing {
                 return Err(hermes_error(&stderr, &stream.notice));
             }
         }
@@ -635,15 +688,31 @@ impl ChatTurns {
                 output: count(tokens.get("output")),
                 total: count(tokens.get("total")),
                 cache_read: count(tokens.get("cache_read")),
-            });
+            })
+            // Hermes fills counts it does not have with zero (a detached or
+            // unsettled turn). Unknown usage is reported as unknown, not zero.
+            .filter(|tokens| tokens.input > 0 || tokens.output > 0 || tokens.total > 0);
+        let session = stream
+            .session_id
+            .or_else(|| parse_session_id(&stderr))
+            .or_else(|| session_id.map(str::to_owned));
+        // Detaching the viewer does not stop the agent: interrupt the turn at the
+        // gateway, still holding the one-turn lock so nothing queues behind it.
+        let stop_confirmed = match (&session, ended_early) {
+            (Some(id), true) => interrupt(profile, id).await,
+            _ => false,
+        };
         Ok(HermesReply {
-            reply: final_text.trim().to_owned(),
-            session_id: stream.session_id.or_else(|| parse_session_id(&stderr)),
+            reply: own_text.unwrap_or(streamed).trim().to_owned(),
+            session_id: session,
             model: stream.model,
             tokens,
             duration_ms: Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
             steps,
-            stopped,
+            stopped: ended_early,
+            timed_out,
+            stop_confirmed,
+            incomplete,
         })
     }
 }
@@ -665,6 +734,7 @@ pub async fn hermes_chat(
             &message,
             session_id.as_deref(),
             CHAT_TIMEOUT,
+            &gateway_interrupt,
         )
         .await
 }
@@ -675,7 +745,9 @@ pub fn hermes_chat_progress(turns: tauri::State<'_, ChatTurns>) -> ChatProgress 
     turns.progress()
 }
 
-/// Stops the running turn: interrupts Hermes, then kills it after a grace period.
+/// Stops the running turn: detaches Hermes's viewer, then interrupts the turn
+/// at the gateway. `hermes_chat` returns with `stopConfirmed` saying whether
+/// the gateway accepted the interrupt.
 #[tauri::command]
 pub fn stop_hermes_chat(turns: tauri::State<'_, ChatTurns>) -> bool {
     turns.request_stop()
@@ -695,6 +767,24 @@ mod tests {
     }
 
     const MINUTE: Duration = Duration::from_secs(60);
+
+    type Interrupted = std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>;
+    /// Stub tests never dial a gateway.
+    fn no_gateway(_profile: &str, _session: &str) -> Interrupted {
+        Box::pin(async { false })
+    }
+    /// An interrupter that records what it was asked to stop and accepts it.
+    type Calls = std::sync::Arc<Mutex<Vec<(String, String)>>>;
+    fn recorder() -> (Calls, impl Fn(&str, &str) -> Interrupted + Sync) {
+        let calls = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        (calls, move |profile: &str, session: &str| -> Interrupted {
+            seen.lock()
+                .unwrap()
+                .push((profile.to_owned(), session.to_owned()));
+            Box::pin(async { true })
+        })
+    }
 
     #[test]
     fn chat_args_never_let_message_become_a_flag() {
@@ -805,13 +895,13 @@ mod tests {
             ("ok", "hi", Some("bad id")),
         ] {
             assert!(turns
-                .run(missing, profile, message, session, MINUTE)
+                .run(missing, profile, message, session, MINUTE, &no_gateway)
                 .await
                 .is_err());
         }
         let long = "a".repeat(MESSAGE_LIMIT + 1);
         let error = turns
-            .run(missing, "ok", &long, None, MINUTE)
+            .run(missing, "ok", &long, None, MINUTE, &no_gateway)
             .await
             .unwrap_err();
         assert!(error.contains("too long"));
@@ -844,7 +934,7 @@ printf '\nsession_id: local-abc123\n' >&2
         let hermes = stub(dir.path(), "hermes", &script);
         let turns = ChatTurns::default();
         let reply = turns
-            .run(&hermes, "guanyu", "status?", None, MINUTE)
+            .run(&hermes, "guanyu", "status?", None, MINUTE, &no_gateway)
             .await
             .unwrap();
         assert_eq!(reply.reply, "Hello from Hermes");
@@ -904,7 +994,7 @@ printf '\nsession_id: local-abc123\n' >&2
         );
         assert_eq!(
             turns
-                .run(&failing, "guanyu", "hi", None, MINUTE)
+                .run(&failing, "guanyu", "hi", None, MINUTE, &no_gateway)
                 .await
                 .unwrap_err(),
             "Hermes reported an error: Invalid API key"
@@ -916,7 +1006,7 @@ printf '\nsession_id: local-abc123\n' >&2
         );
         assert_eq!(
             turns
-                .run(&legacy, "guanyu", "hi", None, MINUTE)
+                .run(&legacy, "guanyu", "hi", None, MINUTE, &no_gateway)
                 .await
                 .unwrap_err(),
             "Hermes reported an error: Invalid API key"
@@ -928,7 +1018,7 @@ printf '\nsession_id: local-abc123\n' >&2
         );
         assert_eq!(
             turns
-                .run(&notice, "guanyu", "hi", None, MINUTE)
+                .run(&notice, "guanyu", "hi", None, MINUTE, &no_gateway)
                 .await
                 .unwrap_err(),
             "Hermes reported: Hermes couldn't start the model connection: invalid_params."
@@ -936,7 +1026,7 @@ printf '\nsession_id: local-abc123\n' >&2
         let silent = stub(dir.path(), "silent", "exit 0\n");
         assert_eq!(
             turns
-                .run(&silent, "guanyu", "hi", None, MINUTE)
+                .run(&silent, "guanyu", "hi", None, MINUTE, &no_gateway)
                 .await
                 .unwrap_err(),
             "Hermes did not return a reply."
@@ -953,11 +1043,13 @@ printf '\nsession_id: local-abc123\n' >&2
             "echo '{\"type\":\"tool_use\",\"name\":\"kanban_show\",\"input\":{\"task_id\":\"t_9\"}}'\necho '{\"type\":\"text\",\"text\":\"Working\"}'\nsleep 1\necho '{\"type\":\"result\",\"session_id\":\"s2\",\"exit_code\":0,\"text\":\"Working done\",\"tokens\":{}}'\n",
         );
         let turns = ChatTurns::default();
-        let first = turns.run(&slow, "guanyu", "one", None, MINUTE);
+        let first = turns.run(&slow, "guanyu", "one", None, MINUTE, &no_gateway);
         let watcher = async {
             tokio::time::sleep(Duration::from_millis(500)).await;
             let seen = turns.progress();
-            let refused = turns.run(&slow, "guanyu", "two", None, MINUTE).await;
+            let refused = turns
+                .run(&slow, "guanyu", "two", None, MINUTE, &no_gateway)
+                .await;
             (seen, refused)
         };
         let (first, (seen, refused)) = tokio::join!(first, watcher);
@@ -989,7 +1081,8 @@ printf '\nsession_id: local-abc123\n' >&2
         );
         let turns = ChatTurns::default();
         assert!(!turns.request_stop(), "nothing is running yet");
-        let run = turns.run(&polite, "guanyu", "long task", None, MINUTE);
+        let (interrupts, record) = recorder();
+        let run = turns.run(&polite, "guanyu", "long task", None, MINUTE, &record);
         let stopper = async {
             tokio::time::sleep(Duration::from_millis(400)).await;
             let first = turns.request_stop();
@@ -1001,45 +1094,138 @@ printf '\nsession_id: local-abc123\n' >&2
         let reply = reply.unwrap();
         assert!(first, "the running turn accepts a stop");
         assert!(!second, "a second stop while stopping is a no-op");
-        assert!(reply.stopped);
+        assert!(reply.stopped && !reply.timed_out);
         assert_eq!(reply.reply, "Partial answer");
         assert_eq!(reply.session_id.as_deref(), Some("s3"));
-        assert!(marker.exists(), "Hermes received the interrupt");
+        assert!(marker.exists(), "the viewer was asked to detach");
+        // Detaching is not stopping: the turn is interrupted at the gateway,
+        // for the session the viewer reported, and only then confirmed.
+        assert_eq!(
+            *interrupts.lock().unwrap(),
+            vec![("guanyu".to_owned(), "s3".to_owned())]
+        );
+        assert!(reply.stop_confirmed);
+        // A detached turn's zero-filled counts are unknown, not zero.
+        assert_eq!(reply.tokens, None);
         assert!(started.elapsed() < Duration::from_secs(6));
         assert!(!turns.progress().active);
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_turn_that_ignores_stop_or_runs_too_long_is_killed() {
+    async fn the_time_limit_detaches_keeps_the_reply_and_interrupts_a_known_session() {
         let dir = tempfile::tempdir().unwrap();
+        // This viewer ignores the request to detach, so it is killed after the grace.
         let stubborn = stub(
             dir.path(),
             "stubborn",
             "trap '' INT\necho '{\"type\":\"text\",\"text\":\"still going\"}'\nsleep 60\n",
         );
         let turns = ChatTurns::default();
+        let (interrupts, record) = recorder();
         let started = Instant::now();
-        let error = turns
-            .run(&stubborn, "guanyu", "hi", None, Duration::from_millis(700))
+        let reply = turns
+            .run(
+                &stubborn,
+                "guanyu",
+                "hi",
+                None,
+                Duration::from_millis(700),
+                &record,
+            )
             .await
-            .unwrap_err();
-        assert!(error.contains("did not finish"), "{error}");
+            .unwrap();
+        assert!(reply.stopped && reply.timed_out);
+        assert_eq!(reply.reply, "still going", "what had arrived is kept");
+        assert_eq!(reply.session_id, None);
+        assert!(
+            !reply.stop_confirmed && interrupts.lock().unwrap().is_empty(),
+            "with no session known there is nothing to interrupt, and it says so"
+        );
         assert!(started.elapsed() < Duration::from_secs(8));
         assert!(!turns.progress().active);
+
+        // A resumed conversation's session is known even if the viewer says nothing.
+        let reply = turns
+            .run(
+                &stubborn,
+                "guanyu",
+                "hi",
+                Some("local-known1"),
+                Duration::from_millis(700),
+                &record,
+            )
+            .await
+            .unwrap();
+        assert!(reply.timed_out && reply.stop_confirmed);
+        assert_eq!(reply.session_id.as_deref(), Some("local-known1"));
+        assert_eq!(
+            *interrupts.lock().unwrap(),
+            vec![("guanyu".to_owned(), "local-known1".to_owned())]
+        );
+
         // The lock is free again for the next turn.
         let quick = stub(
             dir.path(),
             "quick",
             "echo '{\"type\":\"result\",\"session_id\":\"s4\",\"exit_code\":0,\"text\":\"ok\",\"tokens\":{}}'\n",
         );
+        let reply = turns
+            .run(&quick, "guanyu", "hi", None, MINUTE, &record)
+            .await
+            .unwrap();
+        assert_eq!(reply.reply, "ok");
+        assert!(!reply.stopped && !reply.stop_confirmed && !reply.incomplete);
+        assert_eq!(
+            interrupts.lock().unwrap().len(),
+            1,
+            "a finished turn is not interrupted"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_reply_with_a_failing_exit_code_is_kept_as_incomplete() {
+        let dir = tempfile::tempdir().unwrap();
+        let turns = ChatTurns::default();
+        // Hermes reached its step limit but still wrote its answer.
+        let limited = stub(
+            dir.path(),
+            "limited",
+            "echo '{\"type\":\"text\",\"text\":\"streamed\"}'\nprintf '%s\\n' '{\"type\":\"result\",\"session_id\":\"s5\",\"exit_code\":1,\"text\":\"Full answer\\n\\n- one\\n- two\",\"tokens\":{\"input\":9,\"output\":2,\"total\":11}}'\nexit 1\n",
+        );
+        let reply = turns
+            .run(&limited, "guanyu", "hi", None, MINUTE, &no_gateway)
+            .await
+            .unwrap();
+        assert!(reply.incomplete && !reply.stopped);
+        assert_eq!(reply.reply, "Full answer\n\n- one\n- two");
+        assert_eq!(reply.session_id.as_deref(), Some("s5"));
+        assert_eq!(reply.tokens.map(|t| t.input), Some(9));
+        // A failing exit with only streamed text, or an explicit error, is still a failure.
+        let empty = stub(
+            dir.path(),
+            "empty",
+            "echo '{\"type\":\"text\",\"text\":\"half a thought\"}'\necho '{\"type\":\"result\",\"session_id\":\"s6\",\"exit_code\":1,\"text\":\"\",\"tokens\":{}}'\nexit 1\n",
+        );
         assert_eq!(
             turns
-                .run(&quick, "guanyu", "hi", None, MINUTE)
+                .run(&empty, "guanyu", "hi", None, MINUTE, &no_gateway)
                 .await
-                .unwrap()
-                .reply,
-            "ok"
+                .unwrap_err(),
+            "Hermes did not return a reply."
+        );
+        let explicit = stub(
+            dir.path(),
+            "explicit",
+            "echo '{\"type\":\"result\",\"session_id\":\"s7\",\"exit_code\":2,\"text\":\"Partial words\",\"error\":\"Rate limited\",\"tokens\":{}}'\nexit 2\n",
+        );
+        assert_eq!(
+            turns
+                .run(&explicit, "guanyu", "hi", None, MINUTE, &no_gateway)
+                .await
+                .unwrap_err(),
+            "Hermes reported an error: Rate limited"
         );
     }
 
@@ -1060,6 +1246,7 @@ printf '\nsession_id: local-abc123\n' >&2
             "Reply with just the word pong. Do not use any tools.",
             None,
             Duration::from_secs(300),
+            &gateway_interrupt,
         );
         let watch = async {
             let mut most = ChatProgress::default();
@@ -1105,10 +1292,85 @@ printf '\nsession_id: local-abc123\n' >&2
                 "What single word did you just reply with? Answer with that word only.",
                 Some(&session),
                 Duration::from_secs(300),
+                &gateway_interrupt,
             )
             .await
             .unwrap();
         println!("resumed reply {:?}, tokens {:?}", again.reply, again.tokens);
         assert!(again.reply.to_lowercase().contains("pong"));
+    }
+
+    /// Stops one real turn partway through and checks that it really ended at
+    /// the gateway: the interrupt is confirmed, and the next message is answered
+    /// promptly instead of queueing behind a turn that is still running. Spends
+    /// a little inference. Run with
+    /// `SHELLGUARDIAN_TEST_HERMES_CHAT=<profile> cargo test -p shellguardian
+    /// live_stop -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "requires SHELLGUARDIAN_TEST_HERMES_CHAT; spends real inference"]
+    async fn live_stop_interrupts_a_real_turn() {
+        let profile = std::env::var("SHELLGUARDIAN_TEST_HERMES_CHAT")
+            .expect("set SHELLGUARDIAN_TEST_HERMES_CHAT to a profile name");
+        let binary = hermes_path().expect("Hermes is installed");
+        let turns = ChatTurns::default();
+        let run = turns.run(
+            &binary,
+            &profile,
+            "Write the numbers from 1 to 600, one per line, with a short remark after each. Do not use any tools.",
+            None,
+            Duration::from_secs(300),
+            &gateway_interrupt,
+        );
+        let stopper = async {
+            // Wait until the reply has started arriving, then stop it.
+            for _ in 0..240 {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                if turns.progress().text.len() > 40 {
+                    break;
+                }
+            }
+            let seen = turns.progress().text.len();
+            let asked = Instant::now();
+            (turns.request_stop(), seen, asked)
+        };
+        let (reply, (accepted, seen, asked)) = tokio::join!(run, stopper);
+        let stop_took = asked.elapsed();
+        let reply = reply.unwrap();
+        println!(
+            "stop accepted {accepted} after {seen} chars; stop took {stop_took:?}; stopped {}, confirmed {}, kept {} chars, session {:?}",
+            reply.stopped,
+            reply.stop_confirmed,
+            reply.reply.len(),
+            reply.session_id.as_deref().map(|id| &id[..id.len().min(12)])
+        );
+        assert!(accepted, "the running turn accepted the stop");
+        assert!(reply.stopped && !reply.timed_out);
+        assert!(reply.stop_confirmed, "the gateway accepted the interrupt");
+        assert!(
+            !reply.reply.contains("600"),
+            "the turn ended before finishing"
+        );
+        assert!(!turns.progress().active);
+        // The interrupted turn is really over: the next message does not wait
+        // behind it. (Before the gateway interrupt this took about two minutes.)
+        let asked_next = Instant::now();
+        let next = turns
+            .run(
+                &binary,
+                &profile,
+                "Reply with just the word pong. Do not use any tools.",
+                reply.session_id.as_deref(),
+                Duration::from_secs(300),
+                &gateway_interrupt,
+            )
+            .await
+            .unwrap();
+        let next_took = asked_next.elapsed();
+        println!("next reply {:?} after {next_took:?}", next.reply);
+        assert!(next.reply.to_lowercase().contains("pong"));
+        assert!(
+            next_took < Duration::from_secs(60),
+            "the follow-up was not queued behind a still-running turn"
+        );
     }
 }

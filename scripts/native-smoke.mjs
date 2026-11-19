@@ -2,11 +2,14 @@
 // Run the driver under a private Xvfb display before invoking this script.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const endpoint = 'http://127.0.0.1:4544';
 const application = resolve(process.argv[2] ?? 'target/debug/shellguardian');
+// Screenshots default outside Playwright's test-results directory, which every
+// Playwright run clears. Override with SHELLGUARDIAN_SMOKE_EVIDENCE.
+const evidence = resolve(process.env.SHELLGUARDIAN_SMOKE_EVIDENCE ?? '.cache/native-smoke');
 // Optional Supervisor check: 'absent', 'detected', or 'live'.
 // - detected: put an isolated Hermes wrapper on the driver's PATH. Walks every
 //   tab and opens (then closes) the setup terminal for the wrapper's profile.
@@ -69,9 +72,9 @@ try {
   assert.ok(!body.includes('Illustrative agents only'));
   assert.equal(await execute('return window.isTauri'), true);
   assert.deepEqual(await execute('return [localStorage.length, sessionStorage.length]'), [0, 0]);
-  await mkdir('test-results', { recursive: true });
+  await mkdir(evidence, { recursive: true });
   const overview = await request(`/session/${session}/screenshot`);
-  await writeFile('test-results/native-overview.png', Buffer.from(overview, 'base64'));
+  await writeFile(join(evidence, 'native-overview.png'), Buffer.from(overview, 'base64'));
 
   // The update check calls GitHub, which rate-limits unauthenticated clients.
   // SHELLGUARDIAN_SMOKE_SKIP_UPDATE=1 skips only that step and says so below.
@@ -89,7 +92,7 @@ try {
     );
     assert.ok(settings.includes(expectedVersion));
     const screenshot = await request(`/session/${session}/screenshot`);
-    await writeFile('test-results/native-settings.png', Buffer.from(screenshot, 'base64'));
+    await writeFile(join(evidence, 'native-settings.png'), Buffer.from(screenshot, 'base64'));
   }
   if (expectHermes) {
     const live = expectHermes !== 'absent';
@@ -107,7 +110,10 @@ try {
     const shot = async (name) => {
       await new Promise((resolve) => setTimeout(resolve, 600));
       const image = await request(`/session/${session}/screenshot`);
-      await writeFile(`test-results/native-supervisor-${name}.png`, Buffer.from(image, 'base64'));
+      await writeFile(
+        join(evidence, `native-supervisor-${name}.png`),
+        Buffer.from(image, 'base64'),
+      );
     };
     const panel = `document.querySelector('#supervisor-panel')?.innerText ?? ''`;
     const openTab = (name) =>

@@ -5,9 +5,7 @@
 //! creates. The CLI lists them all, as a fixed-width text table whose columns
 //! depend on the data, so rows are sliced by the header's column offsets.
 
-use crate::hermes::{
-    hermes_command, hermes_path, require_profile_name, sanitize_text, valid_session_id,
-};
+use crate::hermes::{hermes_command, hermes_path, require_profile_name, valid_session_id};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -47,12 +45,17 @@ struct Parsed {
     source: Option<String>,
 }
 
+/// One table cell. Control characters are removed here, after the row has
+/// been sliced, so they cannot shift the columns.
 fn cell(chars: &[char], start: usize, end: usize) -> Option<String> {
     let end = end.min(chars.len());
     if start >= end {
         return None;
     }
-    let text: String = chars[start..end].iter().collect();
+    let text: String = chars[start..end]
+        .iter()
+        .map(|c| if c.is_control() { ' ' } else { *c })
+        .collect();
     let text = text.trim();
     (!text.is_empty() && text != "—" && text != "-" && text != "?").then(|| text.to_owned())
 }
@@ -103,7 +106,15 @@ fn parse_session_table(text: &str) -> Vec<Parsed> {
                 Some((_, next)) => *next,
                 None => continue,
             };
-            let value = cell(&chars, *start, end);
+            let mut value = cell(&chars, *start, end);
+            // Hermes cuts titles and previews to three characters short of the
+            // column; a value that fills it was cut, so say so.
+            if matches!(*name, "Title" | "Preview") {
+                let full = end.saturating_sub(*start + 3);
+                if let Some(text) = value.as_mut().filter(|t| t.chars().count() >= full) {
+                    text.push('…');
+                }
+            }
             match *name {
                 "Title" => row.title = value,
                 "Preview" => row.preview = value,
@@ -132,10 +143,10 @@ async fn list(binary: &Path, profile: &str, source: Option<&str>) -> Result<Vec<
     if !output.status.success() {
         return Err("Hermes could not list this agent's sessions.".into());
     }
-    Ok(parse_session_table(&sanitize_text(
-        &output.stdout,
-        TABLE_LIMIT,
-    )))
+    // Parse the raw table: removing control characters first would shift a
+    // row's columns. Cells are cleaned as they are sliced.
+    let raw = &output.stdout[..output.stdout.len().min(TABLE_LIMIT)];
+    Ok(parse_session_table(&String::from_utf8_lossy(raw)))
 }
 
 /// Combines the full listing with the per-source listings that reveal which
@@ -208,7 +219,11 @@ mod tests {
         let rows = parse_session_table(&titled());
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].id, ID_A);
-        assert_eq!(rows[0].title.as_deref(), Some("sgacc-bf2216-fail read fil"));
+        assert_eq!(
+            rows[0].title.as_deref(),
+            Some("sgacc-bf2216-fail read fil…"),
+            "a title that fills its column was cut by Hermes"
+        );
         assert_eq!(rows[0].workspace.as_deref(), Some("t_1930633b"));
         assert_eq!(rows[0].last_active.as_deref(), Some("6m ago"));
         assert_eq!(rows[0].source, None);
@@ -256,6 +271,29 @@ mod tests {
         assert_eq!(rows[0].workspace, None);
         assert_eq!(rows[0].last_active.as_deref(), Some("2026-11-18"));
         assert_eq!(rows[0].source.as_deref(), Some("telegram"));
+    }
+
+    #[test]
+    fn control_characters_do_not_shift_columns_and_short_titles_are_untouched() {
+        let table = format!(
+            "{:<38} {:<18} {:<13} {:<16} {}\n{}\n{:<38} {:<18} {:<13} {:<16} {ID_A}\n",
+            "Preview",
+            "Workspace",
+            "Last Active",
+            "Src",
+            "ID",
+            "─".repeat(110),
+            "tab\there \u{1b}[1mbold",
+            "home",
+            "2h ago",
+            "oneshot",
+        );
+        let rows = parse_session_table(&table);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].preview.as_deref(), Some("tab here  [1mbold"));
+        assert_eq!(rows[0].workspace.as_deref(), Some("home"));
+        assert_eq!(rows[0].last_active.as_deref(), Some("2h ago"));
+        assert_eq!(rows[0].source.as_deref(), Some("oneshot"));
     }
 
     #[test]

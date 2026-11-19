@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { followSystemTheme } from './theme';
 import './styles.css';
+// After styles.css, so the Supervisor page can refine the shared components.
+import './supervisor.css';
 
 const stopFollowingTheme = followSystemTheme();
 window.addEventListener('pagehide', stopFollowingTheme, { once: true });

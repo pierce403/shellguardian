@@ -1,12 +1,5 @@
 // Chat with the supervisor, with the work it creates alongside.
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from 'react';
+import { useEffect, useLayoutEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -30,6 +23,7 @@ type Board = ReturnType<typeof useBoard>;
 type Usage = ReturnType<typeof useLoad<HermesModelOptions>>;
 
 const MESSAGE_LIMIT = 16 * 1024;
+const STOP_ARMS_AFTER_MS = 700;
 const SUGGESTIONS = [
   'What is on the board right now?',
   "Create a task to summarize today's sandbox activity.",
@@ -49,10 +43,17 @@ function AgentMessage({
   onOpenTask: (id: string) => void;
 }) {
   const steps = message.steps ?? [];
+  const ended = !message.stopped
+    ? null
+    : message.timedOut
+      ? 'stopped at the time limit'
+      : message.stopConfirmed
+        ? 'stopped by you'
+        : 'stopped watching';
   const facts = [
     message.durationMs && message.durationMs >= 1000 ? formatDuration(message.durationMs) : null,
     steps.length ? `${steps.length} ${steps.length === 1 ? 'step' : 'steps'}` : null,
-    message.stopped ? 'stopped by you' : null,
+    ended,
   ].filter(Boolean);
   return (
     <div className="sv-msg agent">
@@ -70,6 +71,18 @@ function AgentMessage({
         <Markdown text={message.text} />
       ) : (
         <p className="muted-copy">Stopped before {agent} wrote anything.</p>
+      )}
+      {message.stopped && !message.stopConfirmed && (
+        <p className="sv-msg-note" role="status">
+          ShellGuardian stopped watching, but Hermes did not confirm that {agent} stopped. It may
+          still be finishing this turn, and new messages wait until it ends.
+        </p>
+      )}
+      {message.incomplete && (
+        <p className="sv-msg-note" role="status">
+          Hermes ended this turn before {agent} finished, for example at its step limit. Ask it to
+          continue if you need the rest.
+        </p>
       )}
       {tasks.length > 0 && (
         <ul className="sv-msg-tasks" aria-label="Tasks created by this reply">
@@ -98,9 +111,10 @@ function tasksByReply(messages: ChatMessage[], tasks: KanbanTask[]): Map<number,
     const created = toDate(task.created_at)?.getTime();
     if (created === undefined) continue;
     // The first reply that finished after the task appeared. Hermes stamps
-    // tasks in whole seconds, hence the small allowance.
-    const owner =
-      replies.find((reply) => reply.at + 1500 >= created) ?? replies[replies.length - 1];
+    // tasks in whole seconds, hence the small allowance. A task newer than
+    // every finished reply belongs to a turn still running (or one that
+    // failed): it is listed in the rail, not under an earlier reply.
+    const owner = replies.find((reply) => reply.at + 1500 >= created);
     if (owner) grouped.set(owner.id, [...(grouped.get(owner.id) ?? []), task]);
   }
   return grouped;
@@ -126,11 +140,16 @@ export function ChatTab({
   onChooseProvider: (profile: string) => void;
 }) {
   const { supervisor, conversation, sending, progress } = hermes;
-  const [draft, setDraft] = useState('');
+  // The draft lives with the rest of the chat state, so it survives a tab switch.
+  const { draft, setDraft } = hermes;
   const thread = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const pinned = useRef(true);
   const messages = conversation?.messages ?? [];
+  // Task cards appear inside replies after the reply itself; keep following.
+  const taskCount = conversation?.sessionId
+    ? board.tasks.filter((task) => task.session_id === conversation.sessionId).length
+    : 0;
   const activeTasks = board.tasks.filter((task) => task.status === 'running');
   useTicker(sending || activeTasks.length > 0);
 
@@ -138,7 +157,7 @@ export function ChatTab({
   useLayoutEffect(() => {
     const node = thread.current;
     if (node && pinned.current) node.scrollTop = node.scrollHeight;
-  }, [messages.length, sending, progress?.text, progress?.steps.length]);
+  }, [messages.length, sending, progress?.text, progress?.steps.length, taskCount]);
   // Grow the composer with its content, up to a few lines.
   useLayoutEffect(() => {
     const node = composer.current;
@@ -310,10 +329,13 @@ export function ChatTab({
           )}
           {sending && (
             <div className="sv-msg agent live" aria-live="off">
-              <span className="sv-msg-who" role="status">
+              <span className="sv-msg-who">
                 <LoaderCircle size={13} className="spin" aria-hidden="true" />
-                {progress?.stopping ? `Stopping ${name}` : `${name} is working`}
-                <small>{formatDuration(progress?.elapsedMs ?? 0)}</small>
+                <span role="status">
+                  {progress?.stopping ? `Stopping ${name}` : `${name} is working`}
+                </span>
+                {/* Outside the status region, so the ticking time is not announced. */}
+                <small aria-hidden="true">{formatDuration(progress?.elapsedMs ?? 0)}</small>
               </span>
               <StepList steps={progress?.steps ?? []} live />
               {progress?.text && <Markdown text={progress.text} />}
@@ -336,15 +358,19 @@ export function ChatTab({
             <span className="muted-copy">
               {tooLong
                 ? 'That message is too long to send.'
-                : lastTokens
-                  ? `This conversation so far: ${formatCount(lastTokens.input)} tokens in, ${formatCount(lastTokens.output)} out`
-                  : 'Enter to send. Shift+Enter for a new line.'}
+                : hermes.busyWith
+                  ? `Waiting for ${hermes.busyWith} to finish. One reply runs at a time.`
+                  : lastTokens
+                    ? `This conversation so far: ${formatCount(lastTokens.input)} tokens in, ${formatCount(lastTokens.output)} out`
+                    : 'Enter to send. Shift+Enter for a new line.'}
             </span>
             {sending ? (
               <button
                 type="button"
                 className="button"
-                disabled={progress?.stopping}
+                // Send turns into Stop in place: ignore the first moment, so a
+                // double-click on Send cannot stop the turn it just started.
+                disabled={progress?.stopping || (progress?.elapsedMs ?? 0) < STOP_ARMS_AFTER_MS}
                 onClick={hermes.stop}
               >
                 <Square size={13} aria-hidden="true" />
@@ -369,9 +395,19 @@ export function ChatTab({
           <div className="section-label">
             <Activity size={18} aria-hidden="true" />
             <h3>Work in progress</h3>
-            <span className="count-badge">{activeTasks.length}</span>
+            {board.loaded && <span className="count-badge">{activeTasks.length}</span>}
           </div>
-          {activeTasks.length === 0 && (
+          {!board.loaded &&
+            (board.error ? (
+              <p className="form-error" role="alert">
+                The board could not be read, so running work is unavailable. {board.error}
+              </p>
+            ) : (
+              <p className="muted-copy" role="status">
+                Checking the board…
+              </p>
+            ))}
+          {board.loaded && activeTasks.length === 0 && (
             <p className="muted-copy">
               Nothing is running.
               {waiting.length > 0 ? ` ${waiting.length} waiting.` : ''}

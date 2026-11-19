@@ -31,7 +31,9 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
       if (!quiet) setData(null);
       setError(api.errorMessage(e));
     } finally {
-      if (mine === generation.current && !quiet) setLoading(false);
+      // The newest request always clears the spinner, including a quiet one
+      // that overtook a manual reload.
+      if (mine === generation.current) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
@@ -82,12 +84,14 @@ const FALLBACK_MS = 15_000;
 /**
  * The kanban board, kept current without polling Hermes. A cheap change token
  * is checked every 1.5 seconds; tasks are refetched only when it moves. If the
- * token is unavailable the board falls back to a slow refetch.
+ * token is unavailable the board falls back to a slow refetch. Nothing is read
+ * until `enabled` (Hermes is installed).
  */
-export function useBoard(archived: boolean) {
+export function useBoard(archived: boolean, enabled: boolean) {
   const [boards, setBoards] = useState<KanbanBoard[] | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const [tasks, setTasks] = useState<KanbanTask[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   /** Bumps whenever the board content may have changed; details reload on it. */
@@ -101,14 +105,16 @@ export function useBoard(archived: boolean) {
   const loadBoards = useCallback(async () => {
     try {
       setBoards(await api.kanbanBoards());
+      setError(null);
     } catch (e) {
-      setBoards([]);
+      // Keep the last known boards: one failed read must not blank a working board.
+      setBoards((current) => current ?? []);
       setError(api.errorMessage(e));
     }
   }, []);
   useEffect(() => {
-    void loadBoards();
-  }, [loadBoards]);
+    if (enabled) void loadBoards();
+  }, [enabled, loadBoards]);
 
   const refresh = useCallback(
     async (quiet = false) => {
@@ -116,16 +122,29 @@ export function useBoard(archived: boolean) {
       const mine = (generation.current += 1);
       if (!quiet) setLoading(true);
       try {
+        // Read the change token before the tasks: anything written after this
+        // point shows up as a newer token and triggers another fetch.
+        let token: string | null = null;
+        if (signal.current) {
+          try {
+            token = await api.kanbanRevision(active);
+          } catch {
+            // No change signal for this board: the slow refetch below covers it.
+            signal.current = false;
+          }
+        }
         const next = await api.kanbanTasks(active, archived);
         if (mine !== generation.current) return;
-        setTasks(next);
+        revision.current = token;
+        setTasks(next.tasks);
+        setTruncated(next.truncated);
         setError(null);
         setVersion((n) => n + 1);
       } catch (e) {
         if (mine !== generation.current) return;
         setError(api.errorMessage(e));
       } finally {
-        if (mine === generation.current && !quiet) setLoading(false);
+        if (mine === generation.current) setLoading(false);
       }
     },
     [active, archived],
@@ -140,33 +159,29 @@ export function useBoard(archived: boolean) {
 
   useVisibleInterval(
     async () => {
-      if (!active || !signal.current) return;
+      // Wait for the first load; it records the token to compare against.
+      if (!active || !signal.current || revision.current === null) return;
       try {
         const next = await api.kanbanRevision(active);
-        if (revision.current !== null && revision.current !== next) await refresh(true);
-        revision.current = next;
+        if (next !== revision.current) await refresh(true);
       } catch {
-        // No change signal for this board: fall back to the slow refetch below.
         signal.current = false;
       }
     },
     REVISION_MS,
     Boolean(active),
   );
-  useVisibleInterval(
-    async () => {
-      // Safety net (and the only refresh when there is no change signal).
-      await refresh(true);
-    },
-    FALLBACK_MS,
-    Boolean(active),
-  );
+  // Safety net, and the only refresh when there is no change signal.
+  useVisibleInterval(() => refresh(true), FALLBACK_MS, Boolean(active));
 
   return {
     boards: boards ?? [],
     active,
     choose: setChosen,
     tasks: tasks ?? [],
+    /** True when the board holds more tasks than are shown. */
+    truncated,
+    /** False until the first task list arrives. */
     loaded: tasks !== null,
     loading,
     error,

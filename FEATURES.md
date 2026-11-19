@@ -255,10 +255,19 @@ Test Criteria:
   - Chat: one turn at a time through `hermes -p <profile> chat -Q --format=stream-json
     --query=... [--resume=...]`, bounded in size and time, run from the home directory.
     While a turn runs the page polls native progress: reply text so far and the tool
-    calls made, as plain-language steps. Stop interrupts Hermes (SIGINT to the chat
-    process group, then SIGKILL after 8 seconds) and keeps what had arrived. A message
-    sent while a turn is running is kept as a draft. Conversations live in memory only.
-    Token totals are Hermes's running totals for the conversation.
+    calls made, as plain-language steps. A message sent while a turn is running is
+    kept as a draft, and drafts survive a tab switch. Conversations live in memory only.
+    Token totals are Hermes's running totals for the conversation; unknown totals are
+    not shown as zero.
+  - Stop: the chat CLI is only a viewer, so signalling it detaches it while the agent
+    keeps working. Stop detaches the viewer, then interrupts the turn at the gateway
+    (`session.events.since` for the execution generation, then `session.interrupt`),
+    holding the one-turn lock until that returns. The reply says "stopped by you" only
+    when the gateway accepted the interrupt; otherwise it says ShellGuardian stopped
+    watching and Hermes may still be working. The 10 minute limit ends a turn the same
+    way and keeps the session and what had arrived.
+  - A reply that Hermes marks incomplete (for example at its step limit) is shown as the
+    reply with a note, not as an error.
   - Dangerous commands fail closed (`HERMES_INTERACTIVE=1`, no stdin), never auto-approved.
   - Hermes children never inherit provider keys from the desktop environment.
   - Replies render through a small built-in Markdown subset (paragraphs, lists, bold,
@@ -302,15 +311,18 @@ Test Criteria:
   - A second launch focuses the running window (single-instance plugin).
   - Remote host support is not implemented.
 - **Test criteria**:
-  - [x] Rust (85 tests): name and session validation, profile and session table
+  - [x] Rust (90 tests): name and session validation, profile and session table
     parsing, stream-json handling (only allowlisted tool arguments reach the reply),
     live progress, one-turn locking, Stop and timeout killing the process group,
     environment allowlist, installer staging and hash binding, loopback URL and ticket
     validation, a fake loopback gateway (subprotocol, `gateway.ready`, declined server
     requests, key redaction before truncation), result projections, flag-safe kanban
-    arguments, trusted database paths, and a change signal that ignores readers
-    (2026-11-18).
-  - [x] Chromium (47 tests): chat progress, drafts, Stop, retry, Markdown rendering,
+    arguments, trusted database paths, a change signal that ignores readers, the
+    interrupt sequence against a scripted gateway, incomplete replies, and time limits
+    that keep the session (2026-11-18).
+  - [x] Chromium (50 tests): chat progress, drafts, Stop, retry, Markdown rendering,
+    honest wording for confirmed and unconfirmed stops, board loading and failure
+    states that never show unread counts as zero,
     reply-linked tasks, the live board, drawer, new task, filters, capped columns,
     folded check-ins, provider and key flows (the key never stays in the page), gateway
     notices that never start a gateway on their own, sessions, schedules, keyboard
@@ -332,7 +344,13 @@ Test Criteria:
     (two real launches in a private display and bus, 2026-11-18).
   - [x] Live download of the official installer (68,015 bytes, staged owner-only,
     hash-bound); the script still supports `--skip-setup`. Not run (2026-11-18).
-  - [ ] Stop on a real long-running turn (verified with stub processes only).
+  - [x] Stop on a real long-running turn: the gateway confirmed the interrupt and the
+    next message was answered in 6 seconds. Before the gateway interrupt, the same
+    follow-up waited about two minutes behind the turn that was still running
+    (2026-11-18).
+  - [x] Independent audit of the redesign (five reviewers, each significant finding
+    checked by a second agent): 13 confirmed findings and 15 minor ones, all addressed
+    (2026-11-18).
   - [ ] Native WebKit for the redesigned page with an isolated Hermes: now that Hermes
     is installed per-user, the isolated smoke modes need a redirected home directory.
   - [ ] Run the official installer end to end on a clean account.

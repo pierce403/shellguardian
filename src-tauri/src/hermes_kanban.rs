@@ -12,6 +12,7 @@
 
 use crate::hermes::{hermes_command, hermes_path, require_profile_name, sanitize_text};
 use crate::hermes_gateway::{bounded, pick, rows, BODY_LIMIT, FIELD_LIMIT};
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -22,6 +23,11 @@ const KANBAN_TIMEOUT: Duration = Duration::from_secs(30);
 const KANBAN_TITLE_LIMIT: usize = 300;
 const KANBAN_BODY_LIMIT: usize = 16 * 1024;
 const LOG_TAIL_BYTES: usize = 16 * 1024;
+/// Tasks shown per board. Hermes never archives on its own, so a busy board
+/// grows without bound; the newest are kept and the cut is reported.
+const TASK_LIMIT: usize = 500;
+/// Timeline events and comments shown per task: the newest ones.
+const DETAIL_LIMIT: usize = 400;
 
 fn valid_board(slug: &str) -> bool {
     slug.bytes()
@@ -211,17 +217,48 @@ pub async fn hermes_kanban_boards() -> Result<Vec<Value>, String> {
         .collect())
 }
 
+/// A board's tasks, newest first, and whether older ones were left out.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskList {
+    tasks: Vec<Value>,
+    /// True when the board holds more tasks than are shown.
+    truncated: bool,
+}
+
+/// Projects `kanban list --json`, keeping the first `TASK_LIMIT` rows. The
+/// list is requested newest first, so the cut drops the oldest tasks.
+fn project_tasks(value: &Value) -> TaskList {
+    let all = value.as_array().map_or(&[][..], Vec::as_slice);
+    TaskList {
+        tasks: all
+            .iter()
+            .take(TASK_LIMIT)
+            .map(|task| Value::Object(pick(task, TASK_KEYS, FIELD_LIMIT)))
+            .collect(),
+        truncated: all.len() > TASK_LIMIT,
+    }
+}
+
 /// Lists a board's tasks, optionally including archived ones.
 #[tauri::command]
-pub async fn hermes_kanban_tasks(board: String, archived: bool) -> Result<Vec<Value>, String> {
-    let mut args = vec!["list", "--json"];
+pub async fn hermes_kanban_tasks(board: String, archived: bool) -> Result<TaskList, String> {
+    // Hermes's default order is oldest first within a priority, which would
+    // make a cut drop exactly the tasks just created or still running.
+    let mut args = vec!["list", "--json", "--sort=created-desc"];
     if archived {
         args.push("--archived");
     }
     let value = parse_json(&kanban(Some(&board), &args).await?)?;
-    Ok(rows(Some(&value))
-        .map(|t| Value::Object(pick(t, TASK_KEYS, FIELD_LIMIT)))
-        .collect())
+    Ok(project_tasks(&value))
+}
+
+/// The newest `limit` rows of a list that Hermes returns oldest first.
+fn newest(value: Option<&Value>, limit: usize) -> impl Iterator<Item = &Value> {
+    let all = value
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    all[all.len().saturating_sub(limit)..].iter()
 }
 
 /// One task with its body, result, comments, timeline, and runs.
@@ -278,14 +315,18 @@ fn project_task_detail(value: &Value) -> Value {
     out.insert(
         "comments".into(),
         Value::Array(
-            rows(value.get("comments"))
+            newest(value.get("comments"), DETAIL_LIMIT)
                 .map(|c| Value::Object(pick(c, &["author", "body", "created_at"], BODY_LIMIT)))
                 .collect(),
         ),
     );
     out.insert(
         "events".into(),
-        Value::Array(rows(value.get("events")).map(project_event).collect()),
+        Value::Array(
+            newest(value.get("events"), DETAIL_LIMIT)
+                .map(project_event)
+                .collect(),
+        ),
     );
     out.insert(
         "runs".into(),
@@ -357,7 +398,11 @@ fn require_text(text: &str, limit: usize, what: &str) -> Result<(), String> {
 /// `--`, so it can never be parsed as a flag.
 fn create_args(title: &str, body: &str, assignee: Option<&str>) -> Result<Vec<String>, String> {
     let title = title.trim();
-    require_text(title, KANBAN_TITLE_LIMIT, "task title")?;
+    // The form limits characters, so the title is counted the same way.
+    require_text(title, KANBAN_TITLE_LIMIT * 4, "task title")?;
+    if title.chars().count() > KANBAN_TITLE_LIMIT {
+        return Err("That task title is too long.".into());
+    }
     if title.contains(['\n', '\r']) {
         return Err("Keep the task title on one line.".into());
     }
@@ -456,6 +501,9 @@ mod tests {
         assert!(create_args("two\nlines", "", None).is_err());
         assert!(create_args("t", "", Some("Bad Name")).is_err());
         assert!(create_args(&"t".repeat(KANBAN_TITLE_LIMIT + 1), "", None).is_err());
+        // The limit is in characters, as the form's is: 300 two-byte letters fit.
+        assert!(create_args(&"é".repeat(KANBAN_TITLE_LIMIT), "", None).is_ok());
+        assert!(create_args(&"é".repeat(KANBAN_TITLE_LIMIT + 1), "", None).is_err());
         assert!(create_args("t", &"b".repeat(KANBAN_BODY_LIMIT + 1), None).is_err());
     }
 
@@ -486,6 +534,29 @@ mod tests {
         assert!(out["runs"][0].get("worker_pid").is_none());
         assert!(out["runs"][0].get("metadata").is_none());
         assert_eq!(out["comments"][0]["body"], "hi");
+    }
+
+    #[test]
+    fn long_boards_keep_the_newest_tasks_and_say_they_were_cut() {
+        let rows: Vec<Value> = (0..TASK_LIMIT + 3)
+            .map(|n| json!({"id": format!("t_{n}"), "title": "T", "db": "/x"}))
+            .collect();
+        let list = project_tasks(&Value::Array(rows));
+        assert!(list.truncated);
+        assert_eq!(list.tasks.len(), TASK_LIMIT);
+        assert_eq!(list.tasks[0]["id"], "t_0", "the list arrives newest first");
+        assert!(list.tasks[0].get("db").is_none());
+        let short = project_tasks(&json!([{"id": "t_a"}]));
+        assert!(!short.truncated && short.tasks.len() == 1);
+        assert_eq!(project_tasks(&json!({"not": "a list"})).tasks.len(), 0);
+        // A long task history keeps its newest events.
+        let events: Vec<Value> = (0..DETAIL_LIMIT + 5)
+            .map(|n| json!({"kind": "heartbeat", "created_at": n}))
+            .collect();
+        let detail = project_task_detail(&json!({"task": {"id": "t"}, "events": events}));
+        let shown = detail["events"].as_array().unwrap();
+        assert_eq!(shown.len(), DETAIL_LIMIT);
+        assert_eq!(shown.last().unwrap()["created_at"], DETAIL_LIMIT + 4);
     }
 
     #[test]
@@ -547,8 +618,11 @@ mod tests {
         assert!(!boards.is_empty());
         for board in &boards {
             let slug = board["slug"].as_str().unwrap().to_owned();
-            let open = hermes_kanban_tasks(slug.clone(), false).await.unwrap();
-            let all = hermes_kanban_tasks(slug.clone(), true).await.unwrap();
+            let open = hermes_kanban_tasks(slug.clone(), false)
+                .await
+                .unwrap()
+                .tasks;
+            let all = hermes_kanban_tasks(slug.clone(), true).await.unwrap().tasks;
             let before = hermes_kanban_revision(slug.clone()).await.unwrap();
             // Reads must not move the change signal, or the UI would refetch forever.
             hermes_kanban_tasks(slug.clone(), false).await.unwrap();

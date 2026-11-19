@@ -1,5 +1,5 @@
 // The Supervisor page: ask a local Hermes agent for work and watch it happen.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BrainCircuit,
   Download,
@@ -12,13 +12,13 @@ import {
 } from 'lucide-react';
 import * as api from './api';
 import AgentTerminal from './AgentTerminal';
-import './supervisor.css';
 import { AgentsTab } from './supervisor/AgentsTab';
 import { BoardTab } from './supervisor/BoardTab';
 import { ChatTab } from './supervisor/ChatTab';
 import { SchedulesTab } from './supervisor/SchedulesTab';
 import { SessionsTab } from './supervisor/SessionsTab';
 import { TaskDrawer } from './supervisor/TaskDrawer';
+import { Select } from './supervisor/parts';
 import { useBoard, useLoad, useRunningDetails, useVisibleInterval } from './supervisor/hooks';
 import { useHermes, type Hermes } from './supervisor/useHermes';
 import type { HermesModelOptions, HermesTerminalTarget, InstallerPreview } from './types';
@@ -196,7 +196,7 @@ export default function Supervisor({
   const name = supervisor?.name ?? null;
 
   // The board and the selected agent's usage are shared by several tabs.
-  const board = useBoard(archived);
+  const board = useBoard(archived, installed);
   const running = useRunningDetails(board.active, board.tasks, board.version);
   const usage = useLoad<HermesModelOptions>(
     () =>
@@ -207,17 +207,22 @@ export default function Supervisor({
   );
   useVisibleInterval(() => usage.reload(true), USAGE_REFRESH_MS, Boolean(name && installed));
   const gatewayRunning = supervisor?.gateway === 'running';
-  // Usage needs the gateway: fetch it again once the gateway comes up.
+  // Usage needs the gateway: fetch it again when the gateway comes up (the
+  // first fetch for an agent is useLoad's own).
   const reloadUsage = usage.reload;
+  const wasRunning = useRef(gatewayRunning);
   useEffect(() => {
-    if (gatewayRunning) void reloadUsage(true);
+    if (gatewayRunning && !wasRunning.current) void reloadUsage(true);
+    wasRunning.current = gatewayRunning;
   }, [gatewayRunning, reloadUsage]);
 
   const refreshHermes = hermes.refresh;
+  const refreshBoard = board.refresh;
   const refreshAll = useCallback(async () => {
     await refreshHermes();
     void reloadUsage(true);
-  }, [refreshHermes, reloadUsage]);
+    void refreshBoard();
+  }, [refreshBoard, refreshHermes, reloadUsage]);
 
   function closeTerminal() {
     const finished = terminal;
@@ -336,8 +341,7 @@ export default function Supervisor({
               {profiles.length > 1 && (
                 <label className="sv-inline-field">
                   Agent
-                  <select
-                    className="sv-select"
+                  <Select
                     aria-label="Supervisor agent"
                     value={supervisor.name}
                     disabled={hermes.busy}
@@ -348,7 +352,7 @@ export default function Supervisor({
                         {profile.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
               )}
               {gatewayRunning ? (
@@ -426,6 +430,7 @@ export default function Supervisor({
             <SessionsTab
               key={supervisor.name}
               profile={supervisor.name}
+              gatewayRunning={gatewayRunning}
               onGatewayChanged={() => void refreshAll()}
             />
           )}
@@ -433,6 +438,7 @@ export default function Supervisor({
             <SchedulesTab
               key={supervisor.name}
               profile={supervisor.name}
+              gatewayRunning={gatewayRunning}
               onGatewayChanged={() => void refreshAll()}
             />
           )}

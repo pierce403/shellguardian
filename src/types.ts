@@ -117,8 +117,14 @@ export interface HermesReply {
   tokens: ChatTokens | null;
   durationMs: number | null;
   steps: ChatStep[];
-  /** True when the user stopped the turn; reply is whatever had arrived. */
+  /** True when the turn ended early (by you or the time limit); reply is what had arrived. */
   stopped: boolean;
+  /** True when the time limit, not you, ended the turn. */
+  timedOut: boolean;
+  /** True only when Hermes confirmed the turn was interrupted. */
+  stopConfirmed: boolean;
+  /** True when Hermes replied but said the turn did not complete (for example a step limit). */
+  incomplete: boolean;
 }
 /** Live state of the running chat turn. */
 export interface ChatProgress {
@@ -269,6 +275,12 @@ export interface KanbanTask {
   session_id?: string;
   model_override?: string;
   provider_override?: string;
+}
+/** A board's tasks, newest first. */
+export interface KanbanTaskList {
+  tasks: KanbanTask[];
+  /** True when the board holds more tasks than are shown. */
+  truncated: boolean;
 }
 export interface KanbanEvent {
   kind?: string;
