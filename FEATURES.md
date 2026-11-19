@@ -355,6 +355,11 @@ Test Criteria:
   - [x] Optimized 0.6.0 build (embedded frontend, production content security policy):
     the same read-only native walk-through rendered every Supervisor tab (2026-11-18).
     The AppImage itself is built and signed only by the release workflow.
+  - [x] Published 0.6.0 release: the workflow's own test run passed, `SHA256SUMS`
+    matched every asset, the live update manifest served 0.6.0 with the published
+    signature, and the AppImage opened its window in a private display, session bus,
+    and empty home directory (2026-11-18). An in-place update from an older installed
+    version was not driven by hand.
   - [ ] Native WebKit for the redesigned page with an isolated Hermes: now that Hermes
     is installed per-user, the isolated smoke modes need a redirected home directory.
   - [ ] Run the official installer end to end on a clean account.
