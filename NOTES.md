@@ -742,3 +742,21 @@ bring-your-own-keys) in the in-app terminal for an isolated profile.
   table columns.
 - Running the audit (18 agents, about 1.4M tokens) took the owner's Claude session
   usage from 35% to 95%. Keep reviewer fan-outs small on this account.
+
+## Preparing release 0.6.0 (2026-11-18)
+
+- `npm run tauri build -- --no-bundle` panicked with `TooManyOpenFiles` at tauri-cli
+  `interface/rust.rs:146` while `npm run tauri dev` was running in another terminal.
+  The cause was not investigated. After `npm run build`,
+  `cargo build --release -p shellguardian --locked --features tauri/custom-protocol`
+  builds the optimized binary without the CLI.
+- The debug binary loads the dev server, so it never exercises the embedded frontend or
+  the production content security policy. `node scripts/native-smoke.mjs
+  target/release/shellguardian` does; run it before tagging.
+- The release runner has no Hermes. `cargo test -p shellguardian` passes with an empty
+  `HOME` and a `PATH` without Hermes, which is the closest local check.
+- Browser tests that race a UI timer against the test runner's round trips are fragile on
+  a slow runner. Hold the mocked bridge until the test releases it, and read short-lived
+  states inside the page. `taskset -c 0 npx playwright test --workers=2` finds such tests.
+- `cargo update -p rustls --precise 0.23.46` also moved `cssparser-macros` from syn 3 to
+  syn 2, exactly as Dependabot's pull request did. Both were already in the lockfile.

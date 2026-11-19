@@ -352,6 +352,9 @@ Test Criteria:
   - [x] Independent audit of the redesign (five reviewers, each significant finding
     checked by a second agent): 13 confirmed findings and 15 minor ones, all addressed
     (2026-11-18).
+  - [x] Optimized 0.6.0 build (embedded frontend, production content security policy):
+    the same read-only native walk-through rendered every Supervisor tab (2026-11-18).
+    The AppImage itself is built and signed only by the release workflow.
   - [ ] Native WebKit for the redesigned page with an isolated Hermes: now that Hermes
     is installed per-user, the isolated smoke modes need a redirected home directory.
   - [ ] Run the official installer end to end on a clean account.
